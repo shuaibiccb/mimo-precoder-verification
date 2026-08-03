@@ -44,6 +44,12 @@ x = W @ s
 
 ## 快速开始
 
+安装项目依赖：
+
+```powershell
+python -m pip install -r requirements.txt
+```
+
 在项目根目录运行全部自动测试：
 
 ```powershell
@@ -114,4 +120,3 @@ OK
 1. `complex_mult.sv`：位精确复数乘法器；
 2. `complex_mac.sv`：带清零和使能控制的复数累加器；
 3. `fixed_round_sat.sv`：定点舍入与饱和输出模块。
-
