@@ -6,4 +6,7 @@ htmlcov/
 .venv/
 build/
 reports/generated/
-
+csrc/
+ucli.key
+*.swp
+.nfs*
