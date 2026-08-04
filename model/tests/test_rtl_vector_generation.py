@@ -14,7 +14,8 @@ class RtlVectorGenerationTests(unittest.TestCase):
             second_counts = generate_all(second, 8, 99)
             self.assertEqual(first_counts, second_counts)
 
-            for filename in ("complex_mult.txt", "complex_mac.txt", "fixed_round_sat.txt"):
+            for filename in ("complex_mult.txt", "complex_mac.txt", "fixed_round_sat.txt",
+                             "precoder_core.txt"):
                 first_content = (first / filename).read_text(encoding="ascii")
                 second_content = (second / filename).read_text(encoding="ascii")
                 self.assertTrue(first_content)
@@ -23,4 +24,3 @@ class RtlVectorGenerationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

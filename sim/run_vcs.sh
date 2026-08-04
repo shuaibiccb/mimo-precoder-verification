@@ -22,6 +22,13 @@ run_test() {
 run_test complex_mult rtl/complex_mult.sv
 run_test complex_mac rtl/complex_mult.sv rtl/complex_mac.sv
 run_test fixed_round_sat rtl/fixed_round_sat.sv
+run_test precoder_core \
+  rtl/complex_mult.sv \
+  rtl/complex_mac.sv \
+  rtl/fixed_round_sat.sv \
+  rtl/matrix_storage.sv \
+  rtl/symbol_buffer.sv \
+  rtl/precoder_core.sv \
+  tb/assertions/precoder_core_sva.sv
 
-echo "PASS: all phase-2 VCS unit tests completed"
-
+echo "PASS: all VCS unit/core tests completed"

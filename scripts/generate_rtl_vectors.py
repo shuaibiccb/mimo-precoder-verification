@@ -11,6 +11,7 @@ from model.fixed_model import (
     ACC_WIDTH,
     ComplexInt,
     complex_multiply,
+    precoder_fixed_int,
     requantize_accumulator,
     signed_limits,
 )
@@ -119,12 +120,89 @@ def write_round_sat(path: Path, count: int, seed: int) -> int:
     return len(cases)
 
 
+def output_saturated(matrix: list[list[ComplexInt]], symbols: list[ComplexInt], row: int) -> int:
+    acc_real = 0
+    acc_imag = 0
+    for coefficient, symbol in zip(matrix[row], symbols):
+        product = complex_multiply(coefficient, symbol)
+        acc_real += product.real
+        acc_imag += product.imag
+
+    half = 1 << 13
+    rounded_real = (abs(acc_real) + half) >> 14
+    rounded_imag = (abs(acc_imag) + half) >> 14
+    if acc_real < 0:
+        rounded_real = -rounded_real
+    if acc_imag < 0:
+        rounded_imag = -rounded_imag
+    return int(not (-32768 <= rounded_real <= 32767)
+               or not (-32768 <= rounded_imag <= 32767))
+
+
+def write_precoder_core(path: Path, count: int, seed: int) -> int:
+    zero = ComplexInt(0, 0)
+    one = ComplexInt(16384, 0)
+    half = ComplexInt(8192, 0)
+    neg_one = ComplexInt(-16384, 0)
+    imag_one = ComplexInt(0, 16384)
+
+    identity = [[one if row == col else zero for col in range(4)] for row in range(4)]
+    zero_matrix = [[zero for _ in range(4)] for _ in range(4)]
+    diagonal_values = [one, half, neg_one, imag_one]
+    diagonal = [[diagonal_values[row] if row == col else zero for col in range(4)]
+                for row in range(4)]
+    single = [[zero for _ in range(4)] for _ in range(4)]
+    single[2][1] = ComplexInt(12288, -4096)
+    all_one = [[one for _ in range(4)] for _ in range(4)]
+    directed_symbols = [
+        ComplexInt(4096, -2048),
+        ComplexInt(-8192, 6144),
+        ComplexInt(12288, 4096),
+        ComplexInt(-2048, -10240),
+    ]
+    saturation_symbols = [ComplexInt(32767, 32767) for _ in range(4)]
+    cases: list[tuple[list[list[ComplexInt]], list[ComplexInt]]] = [
+        (zero_matrix, directed_symbols),
+        (identity, directed_symbols),
+        (diagonal, directed_symbols),
+        (single, directed_symbols),
+        (all_one, saturation_symbols),
+    ]
+
+    rng = np.random.default_rng(seed)
+    for _ in range(count):
+        matrix_values = random_signed(rng, 16, 32).reshape(4, 4, 2)
+        symbol_values = random_signed(rng, 16, 8).reshape(4, 2)
+        matrix = [[ComplexInt(int(matrix_values[row, col, 0]),
+                              int(matrix_values[row, col, 1]))
+                   for col in range(4)] for row in range(4)]
+        symbols = [ComplexInt(int(symbol_values[idx, 0]), int(symbol_values[idx, 1]))
+                   for idx in range(4)]
+        cases.append((matrix, symbols))
+
+    with path.open("w", encoding="ascii", newline="\n") as handle:
+        handle.write(f"{len(cases)}\n")
+        for case_id, (matrix, symbols) in enumerate(cases):
+            expected = precoder_fixed_int(matrix, symbols)
+            handle.write(f"{case_id}\n")
+            for row in matrix:
+                for value in row:
+                    handle.write(f"{value.real} {value.imag}\n")
+            for value in symbols:
+                handle.write(f"{value.real} {value.imag}\n")
+            for row, value in enumerate(expected):
+                handle.write(f"{value.real} {value.imag} "
+                             f"{output_saturated(matrix, symbols, row)}\n")
+    return len(cases)
+
+
 def generate_all(output_dir: Path, random_count: int, seed: int) -> dict[str, int]:
     output_dir.mkdir(parents=True, exist_ok=True)
     return {
         "complex_mult": write_complex_mult(output_dir / "complex_mult.txt", random_count, seed),
         "complex_mac": write_complex_mac(output_dir / "complex_mac.txt", max(1, random_count // 4), seed + 1),
         "fixed_round_sat": write_round_sat(output_dir / "fixed_round_sat.txt", random_count, seed + 2),
+        "precoder_core": write_precoder_core(output_dir / "precoder_core.txt", random_count, seed + 3),
     }
 
 
@@ -143,4 +221,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

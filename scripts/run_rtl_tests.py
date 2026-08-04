@@ -71,6 +71,18 @@ def main() -> None:
             "fixed_round_sat",
             [ROOT / "rtl" / "fixed_round_sat.sv", ROOT / "tb" / "unit" / "tb_fixed_round_sat.sv"],
         ),
+        (
+            "precoder_core",
+            [
+                ROOT / "rtl" / "complex_mult.sv",
+                ROOT / "rtl" / "complex_mac.sv",
+                ROOT / "rtl" / "fixed_round_sat.sv",
+                ROOT / "rtl" / "matrix_storage.sv",
+                ROOT / "rtl" / "symbol_buffer.sv",
+                ROOT / "rtl" / "precoder_core.sv",
+                ROOT / "tb" / "core" / "tb_precoder_core.sv",
+            ],
+        ),
     ]
 
     for top, sources in tests:
@@ -79,9 +91,8 @@ def main() -> None:
             + [str(source) for source in sources])
         run([vvp, str(image)])
 
-    print(f"PASS: all {len(tests)} phase-2 RTL unit tests completed")
+    print(f"PASS: all {len(tests)} RTL unit/core tests completed")
 
 
 if __name__ == "__main__":
     main()
-
