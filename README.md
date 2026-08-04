@@ -41,6 +41,9 @@ x = W @ s
 
 - Python 3.10 或更高版本
 - NumPy
+- Icarus Verilog 12 或其他支持 SystemVerilog 2012 的仿真器
+
+Python 依赖通过 `requirements.txt` 安装。Windows 本地 RTL 回归脚本会优先从 `PATH` 查找 `iverilog` 和 `vvp`，也会自动识别 winget 默认安装位置 `C:\iverilog\bin`。
 
 ## 快速开始
 
@@ -88,7 +91,7 @@ mimo-precoder/
 ## 项目路线
 
 - 第一阶段：规格、浮点模型、位精确定点模型和测试，已完成；
-- 第二阶段：复数乘法器、复数 MAC、舍入与饱和 RTL；
+- 第二阶段：复数乘法器、复数 MAC、舍入与饱和 RTL，已完成；
 - 第三阶段：4x4 预编码核心和基础自检 testbench；
 - 第四阶段：流式接口、配置接口和矩阵双缓冲；
 - 第五阶段：UVM、SVA、功能覆盖率、随机回归和 PPA 分析；
@@ -113,10 +116,34 @@ Ran 13 tests
 OK
 ```
 
-## 下一步
+## 第二阶段 RTL 单元回归
 
-下一阶段将优先实现并独立验证以下三个基础 RTL 模块：
+第二阶段已经实现并独立验证以下三个基础 RTL 模块：
 
 1. `complex_mult.sv`：位精确复数乘法器；
 2. `complex_mac.sv`：带清零和使能控制的复数累加器；
 3. `fixed_round_sat.sv`：定点舍入与饱和输出模块。
+
+本地运行全部 RTL 单元测试：
+
+```powershell
+python -m scripts.run_rtl_tests
+```
+
+调整随机用例数量和随机种子：
+
+```powershell
+python -m scripts.run_rtl_tests --random-count 10000 --seed 20260803
+```
+
+脚本会自动生成黄金向量、调用 Icarus Verilog 编译三个 testbench，并自动报告 PASS/FAIL。在安装了 VCS 的 Linux 服务器上可以运行：
+
+```bash
+bash sim/run_vcs.sh
+```
+
+运行 VCS 脚本前，需要保证服务器已经加载可用的 VCS 环境，并且 `vcs -ID` 能正常执行。若命令提示找不到 `vcs1`，说明 `VCS_HOME` 指向了不完整或错误的安装目录，应先修复服务器工具环境。
+
+## 下一步
+
+第三阶段将使用 4 路并行复数 MAC 实现 4x4 预编码核心，加入输入缓存、计算控制状态机和简单 `valid/ready` 流接口，并使用当前三个单元回归作为底层保护。
