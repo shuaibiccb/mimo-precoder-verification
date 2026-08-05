@@ -48,3 +48,11 @@
 - 服务器 VCS 回归额外绑定端口级 SVA。
 
 核心期望结果由 `precoder_fixed_int()` 独立生成，SystemVerilog testbench 不重复实现矩阵乘法算法。
+
+## 第四阶段热更新验证
+
+`tb_precoder_hot_update.sv` 在输出反压期间写入并提交 Bank1，检查第一个事务仍使用旧 Bank/版本，提交在最后一个输出握手后原子生效，第二个事务使用新 Bank 和版本 `8'h2A`。测试同时观察 `commit_pending_o`、`active_bank_o`、`active_version_o` 和 `out_version_o`。
+
+## 波形导出
+
+默认回归不生成波形。VCS 脚本设置 `WAVES=1` 时定义 `FSDB` 并加载 Verdi PLI，将波形写入 `build/vcs/waves/`；本地脚本使用 `--waves` 定义 `VCD`。Verdi 中建议观察状态机、Bank/版本信号、输入输出握手、索引计数器和累加结果。

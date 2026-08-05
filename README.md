@@ -164,4 +164,4 @@ python -m scripts.run_rtl_tests --random-count 1000 --seed 20260804
 
 ## 下一步
 
-第四阶段将把单 Bank 矩阵存储扩展为双 Bank 热更新，增加矩阵版本和原子 `commit`，随后再包装 AXI-Stream 与 AXI-Lite 接口。
+第四阶段已完成：矩阵存储支持 Bank0/Bank1 双缓冲、完整标志、版本号和原子 `commit`。事务开始时锁存 Bank 与版本，保证不会混用两代矩阵；忙期间提交会延迟到最后一个输出握手后生效。`tb_precoder_hot_update.sv` 覆盖输出反压期间更新 Bank1 的场景。testbench 支持 `FSDB`/`VCD` 波形，服务器运行 `WAVES=1 bash sim/run_vcs.sh` 可生成 FSDB，随后使用 Verdi 打开 `build/vcs/waves/*.fsdb`。

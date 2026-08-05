@@ -5,11 +5,20 @@ module tb_precoder_core;
     logic rst_n;
     logic cfg_valid;
     logic cfg_ready;
+    logic cfg_bank;
     logic [1:0] cfg_row;
     logic [1:0] cfg_col;
     logic signed [15:0] cfg_real;
     logic signed [15:0] cfg_imag;
+    logic [1:0] bank_complete;
     logic matrix_complete;
+    logic commit_valid;
+    logic commit_ready;
+    logic commit_bank;
+    logic [7:0] commit_version;
+    logic commit_pending;
+    logic active_bank;
+    logic [7:0] active_version;
     logic in_valid;
     logic in_ready;
     logic signed [15:0] in_real;
@@ -22,6 +31,7 @@ module tb_precoder_core;
     logic [1:0] out_ant_idx;
     logic out_last;
     logic out_saturated;
+    logic [7:0] out_version;
     logic busy;
     logic protocol_error;
 
@@ -55,11 +65,20 @@ module tb_precoder_core;
         .rst_ni(rst_n),
         .cfg_valid_i(cfg_valid),
         .cfg_ready_o(cfg_ready),
+        .cfg_bank_i(cfg_bank),
         .cfg_row_i(cfg_row),
         .cfg_col_i(cfg_col),
         .cfg_real_i(cfg_real),
         .cfg_imag_i(cfg_imag),
+        .bank_complete_o(bank_complete),
         .matrix_complete_o(matrix_complete),
+        .commit_valid_i(commit_valid),
+        .commit_ready_o(commit_ready),
+        .commit_bank_i(commit_bank),
+        .commit_version_i(commit_version),
+        .commit_pending_o(commit_pending),
+        .active_bank_o(active_bank),
+        .active_version_o(active_version),
         .in_valid_i(in_valid),
         .in_ready_o(in_ready),
         .in_real_i(in_real),
@@ -72,9 +91,22 @@ module tb_precoder_core;
         .out_ant_idx_o(out_ant_idx),
         .out_last_o(out_last),
         .out_saturated_o(out_saturated),
+        .out_version_o(out_version),
         .busy_o(busy),
         .protocol_error_o(protocol_error)
     );
+
+`ifdef FSDB
+    initial begin
+        $fsdbDumpfile("build/vcs/waves/precoder_core.fsdb");
+        $fsdbDumpvars(0, tb_precoder_core);
+    end
+`elsif VCD
+    initial begin
+        $dumpfile("build/vcs/waves/precoder_core.vcd");
+        $dumpvars(0, tb_precoder_core);
+    end
+`endif
 
     always #5 clk = ~clk;
 
@@ -84,7 +116,7 @@ module tb_precoder_core;
             rst_n = 1'b0;
             #1;
             if ((busy !== 1'b0) || (out_valid !== 1'b0)
-                    || (matrix_complete !== 1'b0)) begin
+                    || (matrix_complete !== 1'b0) || (bank_complete !== 2'b00)) begin
                 $fatal(1, "reset did not clear core state");
             end
             @(negedge clk);
@@ -93,6 +125,7 @@ module tb_precoder_core;
     endtask
 
     task automatic write_coefficient(
+        input logic bank_value,
         input integer row,
         input integer col,
         input logic signed [15:0] real_value,
@@ -100,6 +133,7 @@ module tb_precoder_core;
     );
         begin
             @(negedge clk);
+            cfg_bank  = bank_value;
             cfg_row   = row[1:0];
             cfg_col   = col[1:0];
             cfg_real  = real_value;
@@ -123,7 +157,8 @@ module tb_precoder_core;
         integer idx;
         begin
             for (idx = 0; idx < 16; idx = idx + 1) begin
-                write_coefficient(idx / 4, idx % 4, matrix_real[idx], matrix_imag[idx]);
+                write_coefficient(1'b0, idx / 4, idx % 4,
+                                  matrix_real[idx], matrix_imag[idx]);
             end
             #1;
             if (!matrix_complete) begin
@@ -184,6 +219,7 @@ module tb_precoder_core;
                     || (out_real !== expected_real[expected_idx])
                     || (out_imag !== expected_imag[expected_idx])
                     || (out_saturated !== expected_sat[expected_idx])
+                    || (out_version !== 8'd0)
                     || (out_last !== (expected_idx == 3))) begin
                 error_count = error_count + 1;
                 $display("FAIL core case=%0d ant=%0d expected=(%0d,%0d,sat=%0d,last=%0d) actual=(%0d,%0d,sat=%0d,last=%0d,idx=%0d)",
@@ -266,10 +302,14 @@ module tb_precoder_core;
         clk          = 1'b0;
         rst_n        = 1'b0;
         cfg_valid    = 1'b0;
+        cfg_bank     = 1'b0;
         cfg_row      = '0;
         cfg_col      = '0;
         cfg_real     = '0;
         cfg_imag     = '0;
+        commit_valid = 1'b0;
+        commit_bank  = 1'b0;
+        commit_version = '0;
         in_valid     = 1'b0;
         in_real      = '0;
         in_imag      = '0;
@@ -344,4 +384,3 @@ module tb_precoder_core;
     end
 
 endmodule
-

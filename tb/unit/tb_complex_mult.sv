@@ -24,6 +24,18 @@ module tb_complex_mult;
         .p_imag_o(p_imag)
     );
 
+`ifdef FSDB
+    initial begin
+        $fsdbDumpfile("build/vcs/waves/complex_mult.fsdb");
+        $fsdbDumpvars(0, tb_complex_mult);
+    end
+`elsif VCD
+    initial begin
+        $dumpfile("build/vcs/waves/complex_mult.vcd");
+        $dumpvars(0, tb_complex_mult);
+    end
+`endif
+
     initial begin
         test_count = 0;
         error_count = 0;
@@ -56,4 +68,3 @@ module tb_complex_mult;
         $finish;
     end
 endmodule
-

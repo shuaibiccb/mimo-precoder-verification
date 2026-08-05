@@ -32,6 +32,18 @@ module tb_complex_mac;
         .acc_imag_o(acc_imag)
     );
 
+`ifdef FSDB
+    initial begin
+        $fsdbDumpfile("build/vcs/waves/complex_mac.fsdb");
+        $fsdbDumpvars(0, tb_complex_mac);
+    end
+`elsif VCD
+    initial begin
+        $dumpfile("build/vcs/waves/complex_mac.vcd");
+        $dumpvars(0, tb_complex_mac);
+    end
+`endif
+
     always #5 clk = ~clk;
 
     initial begin
@@ -84,4 +96,3 @@ module tb_complex_mac;
         $finish;
     end
 endmodule
-

@@ -18,6 +18,18 @@ module tb_fixed_round_sat;
         .saturated_o(saturated)
     );
 
+`ifdef FSDB
+    initial begin
+        $fsdbDumpfile("build/vcs/waves/fixed_round_sat.fsdb");
+        $fsdbDumpvars(0, tb_fixed_round_sat);
+    end
+`elsif VCD
+    initial begin
+        $dumpfile("build/vcs/waves/fixed_round_sat.vcd");
+        $dumpvars(0, tb_fixed_round_sat);
+    end
+`endif
+
     initial begin
         test_count = 0;
         error_count = 0;
@@ -49,4 +61,3 @@ module tb_fixed_round_sat;
         $finish;
     end
 endmodule
-

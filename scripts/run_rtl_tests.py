@@ -35,7 +35,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--random-count", type=int, default=1000)
     parser.add_argument("--seed", type=int, default=20260803)
-    parser.add_argument("--waves", action="store_true", help="reserved for later waveform-enabled tests")
+    parser.add_argument("--waves", action="store_true", help="write VCD files under build/vcs/waves")
     args = parser.parse_args()
     if args.random_count < 1:
         parser.error("--random-count must be positive")
@@ -50,6 +50,8 @@ def main() -> None:
     vector_dir = ROOT / "build" / "rtl_vectors"
     sim_dir = ROOT / "build" / "sim"
     sim_dir.mkdir(parents=True, exist_ok=True)
+    if args.waves:
+        (ROOT / "build" / "vcs" / "waves").mkdir(parents=True, exist_ok=True)
     counts = generate_all(vector_dir, args.random_count, args.seed)
     for name, count in counts.items():
         print(f"{name}: generated {count} vectors")
@@ -83,11 +85,26 @@ def main() -> None:
                 ROOT / "tb" / "core" / "tb_precoder_core.sv",
             ],
         ),
+        (
+            "precoder_hot_update",
+            [
+                ROOT / "rtl" / "complex_mult.sv",
+                ROOT / "rtl" / "complex_mac.sv",
+                ROOT / "rtl" / "fixed_round_sat.sv",
+                ROOT / "rtl" / "matrix_storage.sv",
+                ROOT / "rtl" / "symbol_buffer.sv",
+                ROOT / "rtl" / "precoder_core.sv",
+                ROOT / "tb" / "core" / "tb_precoder_hot_update.sv",
+            ],
+        ),
     ]
 
     for top, sources in tests:
         image = sim_dir / f"{top}.vvp"
-        run([iverilog, "-g2012", "-Wall", "-s", f"tb_{top}", "-o", str(image)]
+        compile_command = [iverilog, "-g2012", "-Wall"]
+        if args.waves:
+            compile_command.append("-DVCD")
+        run(compile_command + ["-s", f"tb_{top}", "-o", str(image)]
             + [str(source) for source in sources])
         run([vvp, str(image)])
 
