@@ -51,7 +51,8 @@ if [[ "${WAVES:-0}" == "1" ]]; then
     echo "ERROR: cannot find Verdi VCS PLI under $verdi_root" >&2
     exit 1
   fi
-  wave_compile_opts=(+define+FSDB -P "$pli_dir/novas.tab" "$pli_dir/pli.a")
+  # -kdb generates the Verdi design database used for hierarchy/source browsing.
+  wave_compile_opts=(-kdb +define+FSDB -P "$pli_dir/novas.tab" "$pli_dir/pli.a")
 fi
 
 run_test() {
