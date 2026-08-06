@@ -79,6 +79,7 @@ run_test() {
   vcs -full64 -sverilog -timescale=1ns/1ps -debug_access+all \
     "${wave_compile_opts[@]}" \
     "${coverage_compile_opts[@]}" \
+    "${run_coverage_opts[@]}" \
     "$@" "$testbench" \
     -top "tb_${name}" -o "build/vcs/simv_${name}" \
     -l "build/vcs/compile_${name}.log"
