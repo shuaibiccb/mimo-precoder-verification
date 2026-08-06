@@ -179,3 +179,5 @@ urg -dir build/vcs/coverage/precoder_core.vdb build/vcs/coverage/precoder_hot_up
 ```
 
 报告生成在 `build/vcs/coverage/report/`。当前先完成自检 testbench、SVA 和覆盖率闭环；AXI 接口加入后，再将现有 task 迁移为 UVM agent。
+
+首轮覆盖率基线用于指导定向补测。当前热更新回归已扩展为 Bank0→Bank1 忙时提交、Bank1→Bank0 空闲回切及零/低非零/高非零版本覆盖，并从交叉覆盖中排除协议不可达的 `last` 组合。

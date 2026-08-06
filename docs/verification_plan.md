@@ -62,3 +62,7 @@
 新增断言覆盖配置、输入、commit 和输出在 `valid && !ready` 时的 payload 稳定性，检查忙时活动 Bank 写保护、commit 目标合法性、pending commit 的事务边界以及 `out_last` 规则。功能覆盖率记录 Bank0/Bank1、完整状态、空闲/忙提交、版本更新、反压、饱和、协议错误、天线输出和关键交叉场景。
 
 服务器运行 `COVERAGE=1 bash sim/run_vcs.sh` 生成 VDB 数据库，再使用 `urg` 汇总 HTML 报告。Windows 快速回归仍使用 Icarus，不编译 VCS 专用 covergroup。
+
+## 第六阶段覆盖率驱动补测
+
+根据首轮 URG 基线补充 Bank0→Bank1 忙时提交、Bank1→Bank0 空闲回切、空闲零版本提交和回切后的端到端结果检查。版本覆盖点按零、低非零和高非零三类建模；输出元数据交叉覆盖排除“天线0～2带 `last`”和“天线3不带 `last`”两类协议不可达组合，避免无意义 bin 人为拉低覆盖率。

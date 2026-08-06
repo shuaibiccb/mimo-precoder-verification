@@ -50,7 +50,8 @@ module precoder_core_coverage (
         }
         cp_commit_version: coverpoint commit_version_i iff (rst_ni && commit_valid_i && commit_ready_o) {
             bins zero = {8'h00};
-            bins nonzero[] = {[8'h01:8'hff]};
+            bins low_nonzero = {[8'h01:8'h7f]};
+            bins high_nonzero = {[8'h80:8'hff]};
         }
         cp_pending: coverpoint commit_pending_o iff (rst_ni) {
             bins not_pending = {0};
@@ -59,7 +60,8 @@ module precoder_core_coverage (
         cp_active_bank: coverpoint active_bank_o iff (rst_ni) {
             bins bank0 = {0};
             bins bank1 = {1};
-            bins switched = (0 => 1), (1 => 0);
+            bins switch_0_to_1 = (0 => 1);
+            bins switch_1_to_0 = (1 => 0);
         }
         cp_input_position: coverpoint in_last_i iff (rst_ni && in_valid_i && in_ready_o) {
             bins body = {0};
@@ -82,7 +84,8 @@ module precoder_core_coverage (
         }
         cp_output_version: coverpoint out_version_o iff (rst_ni && out_valid_o && out_ready_i) {
             bins initial_version = {8'h00};
-            bins updated[] = {[8'h01:8'hff]};
+            bins low_updated = {[8'h01:8'h7f]};
+            bins high_updated = {[8'h80:8'hff]};
         }
         cp_protocol_error: coverpoint protocol_error_o iff (rst_ni) {
             bins clean = {0};
@@ -90,7 +93,14 @@ module precoder_core_coverage (
         }
 
         cross_commit_context: cross cp_commit_bank, cp_commit_busy;
-        cross_output_metadata: cross cp_output_ant, cp_output_last, cp_saturation;
+        cross_output_metadata: cross cp_output_ant, cp_output_last, cp_saturation {
+            ignore_bins last_before_final =
+                binsof(cp_output_ant) intersect {[0:2]} &&
+                binsof(cp_output_last.last);
+            ignore_bins missing_final_last =
+                binsof(cp_output_ant) intersect {3} &&
+                binsof(cp_output_last.body);
+        }
     endgroup
 
     cg_precoder coverage = new();

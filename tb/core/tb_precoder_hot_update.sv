@@ -114,6 +114,24 @@ module tb_precoder_hot_update;
         end
     endtask
 
+    task automatic commit_bank_now(input logic bank, input logic [7:0] version);
+        begin
+            @(negedge clk);
+            commit_bank = bank;
+            commit_version = version;
+            commit_valid = 1'b1;
+            timeout_count = 0;
+            while (!commit_ready && timeout_count < 100) begin
+                @(posedge clk);
+                timeout_count = timeout_count + 1;
+            end
+            if (!commit_ready) $fatal(1, "commit timeout for bank %0d", bank);
+            @(posedge clk);
+            @(negedge clk);
+            commit_valid = 1'b0;
+        end
+    endtask
+
     initial begin
         clk = 0; rst_n = 0; cfg_valid = 0; cfg_bank = 0; cfg_row = 0; cfg_col = 0;
         cfg_real = 0; cfg_imag = 0; commit_valid = 0; commit_bank = 0; commit_version = 0;
@@ -156,13 +174,7 @@ module tb_precoder_hot_update;
         configure_bank(0, 0);
         send_case(0);
         configure_bank(1, 1);
-        commit_bank = 1'b1; commit_version = 8'h2A; commit_valid = 1'b1;
-        timeout_count = 0;
-        while (!commit_ready && timeout_count < 100) begin
-            @(posedge clk); timeout_count = timeout_count + 1;
-        end
-        if (!commit_ready) $fatal(1, "commit timeout");
-        @(posedge clk); @(negedge clk); commit_valid = 1'b0;
+        commit_bank_now(1'b1, 8'h2A);
         if (!commit_pending) $display("INFO: commit accepted and pending at vector boundary");
         check_case_outputs(0, 8'h00);
         #1;
@@ -171,8 +183,25 @@ module tb_precoder_hot_update;
 
         send_case(1);
         check_case_outputs(1, 8'h2A);
+
+        // Return to the already complete Bank 0 while idle. This covers the
+        // immediate commit path and the reverse 1 -> 0 bank transition.
+        if (busy) $fatal(1, "core was not idle before reverse commit");
+        commit_bank_now(1'b0, 8'hA5);
+        #1;
+        if ((active_bank !== 1'b0) || (active_version !== 8'hA5) || commit_pending)
+            $fatal(1, "idle commit did not immediately reactivate Bank 0");
+        send_case(0);
+        check_case_outputs(0, 8'hA5);
+
+        // Exercise a zero-version idle commit as a distinct metadata class.
+        commit_bank_now(1'b1, 8'h00);
+        #1;
+        if ((active_bank !== 1'b1) || (active_version !== 8'h00) || commit_pending)
+            $fatal(1, "zero-version idle commit did not activate Bank 1");
+
         if (errors != 0) $fatal(1, "hot update: %0d output errors", errors);
-        $display("PASS precoder_hot_update: atomic bank switch and version tracking");
+        $display("PASS precoder_hot_update: busy/idle commit, bank round-trip, and version tracking");
         $finish;
     end
 endmodule
