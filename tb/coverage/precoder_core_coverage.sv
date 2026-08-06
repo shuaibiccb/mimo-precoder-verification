@@ -81,7 +81,7 @@ module precoder_core_coverage (
             bins saturated = {1};
         }
         cp_output_version: coverpoint out_version_o iff (rst_ni && out_valid_o && out_ready_i) {
-            bins initial = {8'h00};
+            bins initial_version = {8'h00};
             bins updated[] = {[8'h01:8'hff]};
         }
         cp_protocol_error: coverpoint protocol_error_o iff (rst_ni) {
