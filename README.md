@@ -181,3 +181,7 @@ urg -dir build/vcs/coverage/precoder_core.vdb build/vcs/coverage/precoder_hot_up
 报告生成在 `build/vcs/coverage/report/`。当前先完成自检 testbench、SVA 和覆盖率闭环；AXI 接口加入后，再将现有 task 迁移为 UVM agent。
 
 首轮覆盖率基线用于指导定向补测。当前热更新回归已扩展为 Bank0→Bank1 忙时提交、Bank1→Bank0 空闲回切及零/低非零/高非零版本覆盖，并从交叉覆盖中排除协议不可达的 `last` 组合。
+
+## 第七阶段：综合与 PPA 基线
+
+`synth/` 提供 Yosys 可综合性检查和 Design Compiler 工艺映射脚本，默认以 `precoder_core` 为顶层、100 MHz 为第一版时钟目标。Yosys 用于无工艺库的结构/资源基线；DC 必须通过 `DC_TARGET_LIBRARY` 指定服务器上的标准单元 `.db`，生成面积、时序、约束和资源报告。详细使用方法见 `docs/synthesis.md`。
