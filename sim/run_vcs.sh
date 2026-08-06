@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-set -euo pipefail
+# The server uses an older Bash that treats an empty array expansion as an
+# unbound variable under `set -u`. Keep fail-fast and pipeline checking while
+# allowing optional VCS argument arrays to remain empty.
+set -eo pipefail
 
 ROOT_DIR=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT_DIR"
