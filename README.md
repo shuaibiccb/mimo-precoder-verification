@@ -165,3 +165,17 @@ python -m scripts.run_rtl_tests --random-count 1000 --seed 20260804
 ## 下一步
 
 第四阶段已完成：矩阵存储支持 Bank0/Bank1 双缓冲、完整标志、版本号和原子 `commit`。事务开始时锁存 Bank 与版本，保证不会混用两代矩阵；忙期间提交会延迟到最后一个输出握手后生效。`tb_precoder_hot_update.sv` 覆盖输出反压期间更新 Bank1 的场景。testbench 支持 `FSDB`/`VCD` 波形，服务器运行 `WAVES=1 bash sim/run_vcs.sh` 可生成 FSDB，随后使用 Verdi 打开 `build/vcs/waves/*.fsdb`。
+
+## 第五阶段：断言与覆盖率闭环
+
+第五阶段扩充了四组流式/配置接口断言，并新增 `tb/coverage/precoder_core_coverage.sv`。覆盖率模型统计 Bank 配置、commit 上下文、版本更新、输出反压、饱和、协议错误、4 个天线输出及关键交叉场景。
+
+服务器启用覆盖率回归：
+
+```bash
+COVERAGE=1 bash sim/run_vcs.sh
+urg -dir build/vcs/coverage/precoder_core.vdb build/vcs/coverage/precoder_hot_update.vdb \
+    -report build/vcs/coverage/report
+```
+
+报告生成在 `build/vcs/coverage/report/`。当前先完成自检 testbench、SVA 和覆盖率闭环；AXI 接口加入后，再将现有 task 迁移为 UVM agent。

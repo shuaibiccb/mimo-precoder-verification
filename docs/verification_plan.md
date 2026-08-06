@@ -56,3 +56,9 @@
 ## 波形导出
 
 默认回归不生成波形。VCS 脚本设置 `WAVES=1` 时定义 `FSDB` 并加载 Verdi PLI，将波形写入 `build/vcs/waves/`；本地脚本使用 `--waves` 定义 `VCD`。Verdi 中建议观察状态机、Bank/版本信号、输入输出握手、索引计数器和累加结果。
+
+## 第五阶段断言与覆盖率闭环
+
+新增断言覆盖配置、输入、commit 和输出在 `valid && !ready` 时的 payload 稳定性，检查忙时活动 Bank 写保护、commit 目标合法性、pending commit 的事务边界以及 `out_last` 规则。功能覆盖率记录 Bank0/Bank1、完整状态、空闲/忙提交、版本更新、反压、饱和、协议错误、天线输出和关键交叉场景。
+
+服务器运行 `COVERAGE=1 bash sim/run_vcs.sh` 生成 VDB 数据库，再使用 `urg` 汇总 HTML 报告。Windows 快速回归仍使用 Icarus，不编译 VCS 专用 covergroup。

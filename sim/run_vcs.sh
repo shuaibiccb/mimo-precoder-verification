@@ -27,6 +27,7 @@ done
 
 mkdir -p build/vcs
 mkdir -p build/vcs/waves
+mkdir -p build/vcs/coverage
 
 wave_compile_opts=()
 if [[ "${WAVES:-0}" == "1" ]]; then
@@ -55,16 +56,33 @@ if [[ "${WAVES:-0}" == "1" ]]; then
   wave_compile_opts=(-kdb +define+FSDB -P "$pli_dir/novas.tab" "$pli_dir/pli.a")
 fi
 
+coverage_compile_opts=()
+coverage_run_opts=()
+coverage_sources=()
+if [[ "${COVERAGE:-0}" == "1" ]]; then
+  coverage_compile_opts=(-cm line+cond+fsm+tgl+branch+assert)
+  coverage_run_opts=(-cm line+cond+fsm+tgl+branch+assert)
+  coverage_sources=(tb/coverage/precoder_core_coverage.sv)
+fi
+
 run_test() {
   local name=$1
   local testbench=$2
+  local run_coverage_opts=()
   shift 2
+  if [[ "${COVERAGE:-0}" == "1" ]]; then
+    run_coverage_opts=(-cm_dir "build/vcs/coverage/${name}.vdb")
+  fi
   vcs -full64 -sverilog -timescale=1ns/1ps -debug_access+all \
     "${wave_compile_opts[@]}" \
+    "${coverage_compile_opts[@]}" \
     "$@" "$testbench" \
     -top "tb_${name}" -o "build/vcs/simv_${name}" \
     -l "build/vcs/compile_${name}.log"
-  "build/vcs/simv_${name}" -l "build/vcs/run_${name}.log"
+  "build/vcs/simv_${name}" \
+    "${coverage_run_opts[@]}" \
+    "${run_coverage_opts[@]}" \
+    -l "build/vcs/run_${name}.log"
 }
 
 run_test complex_mult tb/unit/tb_complex_mult.sv \
@@ -80,7 +98,8 @@ run_test precoder_core tb/core/tb_precoder_core.sv \
   rtl/matrix_storage.sv \
   rtl/symbol_buffer.sv \
   rtl/precoder_core.sv \
-  tb/assertions/precoder_core_sva.sv
+  tb/assertions/precoder_core_sva.sv \
+  "${coverage_sources[@]}"
 run_test precoder_hot_update tb/core/tb_precoder_hot_update.sv \
   rtl/complex_mult.sv \
   rtl/complex_mac.sv \
@@ -88,6 +107,11 @@ run_test precoder_hot_update tb/core/tb_precoder_hot_update.sv \
   rtl/matrix_storage.sv \
   rtl/symbol_buffer.sv \
   rtl/precoder_core.sv \
-  tb/assertions/precoder_core_sva.sv
+  tb/assertions/precoder_core_sva.sv \
+  "${coverage_sources[@]}"
 
 echo "PASS: all VCS unit/core tests completed"
+if [[ "${COVERAGE:-0}" == "1" ]]; then
+  echo "Coverage databases: build/vcs/coverage/*.vdb"
+  echo "Generate HTML: urg -dir build/vcs/coverage/precoder_core.vdb build/vcs/coverage/precoder_hot_update.vdb -report build/vcs/coverage/report"
+fi
