@@ -86,6 +86,10 @@ run_test() {
     "${coverage_run_opts[@]}" \
     "${run_coverage_opts[@]}" \
     -l "build/vcs/run_${name}.log"
+  if grep -Eq "Assertion.*failed|Offending|^[[:space:]]*Error:" "build/vcs/run_${name}.log"; then
+    echo "ERROR: assertion or simulation error detected in build/vcs/run_${name}.log" >&2
+    return 1
+  fi
 }
 
 run_test complex_mult tb/unit/tb_complex_mult.sv \

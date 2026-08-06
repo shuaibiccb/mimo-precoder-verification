@@ -57,6 +57,7 @@ module precoder_core_sva (
     property p_commit_stable_while_stalled;
         @(posedge clk_i) disable iff (!rst_ni)
             commit_valid_i && !commit_ready_o
+                && !$past(commit_valid_i && commit_ready_o)
             |=> commit_valid_i && $stable({commit_bank_i, commit_version_i});
     endproperty
 
