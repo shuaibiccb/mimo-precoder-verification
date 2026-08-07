@@ -61,7 +61,7 @@
 
 新增断言覆盖配置、输入、commit 和输出在 `valid && !ready` 时的 payload 稳定性，检查忙时活动 Bank 写保护、commit 目标合法性、pending commit 的事务边界以及 `out_last` 规则。功能覆盖率记录 Bank0/Bank1、完整状态、空闲/忙提交、版本更新、反压、饱和、协议错误、天线输出和关键交叉场景。
 
-服务器运行 `COVERAGE=1 bash sim/run_vcs.sh` 生成 VDB 数据库，再使用 `urg` 汇总 HTML 报告。Windows 快速回归仍使用 Icarus，不编译 VCS 专用 covergroup。
+服务器运行 `COVERAGE=1 bash sim/run_vcs.sh` 生成 VDB 数据库并自动使用 `urg` 汇总 HTML 报告。脚本会在核心级 VDB 或 `dashboard.html` 缺失时失败退出。Windows 快速回归仍使用 Icarus，不编译 VCS 专用 covergroup。
 
 ## 第六阶段覆盖率驱动补测
 

@@ -170,8 +170,12 @@ module tb_precoder_hot_update;
         end
         $fclose(vector_file);
 
-        // Bank 0 is active. Start case 0, then update inactive Bank 1 while output is stalled.
+        // Complete Bank 1 first so coverage observes the bank1-only state, then
+        // prepare active Bank 0 for the first transaction.
+        configure_bank(1, 1);
         configure_bank(0, 0);
+
+        // Bank 0 is active. Start case 0, then update inactive Bank 1 while output is stalled.
         send_case(0);
         configure_bank(1, 1);
         commit_bank_now(1'b1, 8'h2A);
@@ -199,6 +203,17 @@ module tb_precoder_hot_update;
         #1;
         if ((active_bank !== 1'b1) || (active_version !== 8'h00) || commit_pending)
             $fatal(1, "zero-version idle commit did not activate Bank 1");
+
+        // Commit Bank 0 while Bank 1 is busy. The current transaction must keep
+        // version zero, and the high version becomes active only at its boundary.
+        send_case(1);
+        commit_bank_now(1'b0, 8'hA5);
+        if (!commit_pending)
+            $fatal(1, "busy Bank 0 commit was not marked pending");
+        check_case_outputs(1, 8'h00);
+        #1;
+        if ((active_bank !== 1'b0) || (active_version !== 8'hA5) || commit_pending)
+            $fatal(1, "busy Bank 0 commit did not apply at the vector boundary");
 
         if (errors != 0) $fatal(1, "hot update: %0d output errors", errors);
         $display("PASS precoder_hot_update: busy/idle commit, bank round-trip, and version tracking");

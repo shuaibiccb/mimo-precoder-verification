@@ -63,6 +63,10 @@ coverage_compile_opts=()
 coverage_run_opts=()
 coverage_sources=()
 if [[ "${COVERAGE:-0}" == "1" ]]; then
+  if ! command -v urg >/dev/null 2>&1; then
+    echo "ERROR: COVERAGE=1 requires urg in PATH" >&2
+    exit 1
+  fi
   coverage_compile_opts=(-cm line+cond+fsm+tgl+branch+assert)
   coverage_run_opts=(-cm line+cond+fsm+tgl+branch+assert)
   coverage_sources=(tb/coverage/precoder_core_coverage.sv)
@@ -120,6 +124,18 @@ run_test precoder_hot_update tb/core/tb_precoder_hot_update.sv \
 
 echo "PASS: all VCS unit/core tests completed"
 if [[ "${COVERAGE:-0}" == "1" ]]; then
-  echo "Coverage databases: build/vcs/coverage/*.vdb"
-  echo "Generate HTML: urg -dir build/vcs/coverage/precoder_core.vdb build/vcs/coverage/precoder_hot_update.vdb -report build/vcs/coverage/report"
+  core_vdb="build/vcs/coverage/precoder_core.vdb"
+  hot_update_vdb="build/vcs/coverage/precoder_hot_update.vdb"
+  if [[ ! -d "$core_vdb" || ! -d "$hot_update_vdb" ]]; then
+    echo "ERROR: VCS completed without producing the expected coverage databases" >&2
+    exit 1
+  fi
+  urg -dir "$core_vdb" "$hot_update_vdb" \
+    -report build/vcs/coverage/report \
+    -log build/vcs/coverage/urg.log
+  if [[ ! -f build/vcs/coverage/report/dashboard.html ]]; then
+    echo "ERROR: URG completed without producing dashboard.html" >&2
+    exit 1
+  fi
+  echo "Coverage report: build/vcs/coverage/report/dashboard.html"
 fi
