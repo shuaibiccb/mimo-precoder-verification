@@ -153,17 +153,86 @@ module tb_precoder_core;
         end
     endtask
 
-    task automatic configure_loaded_matrix;
+    task automatic configure_loaded_matrix_bank(input logic bank_value);
         integer idx;
         begin
             for (idx = 0; idx < 16; idx = idx + 1) begin
-                write_coefficient(1'b0, idx / 4, idx % 4,
+                write_coefficient(bank_value, idx / 4, idx % 4,
                                   matrix_real[idx], matrix_imag[idx]);
             end
             #1;
-            if (!matrix_complete) begin
-                $fatal(1, "matrix did not become complete after 16 writes");
+            if (!bank_complete[bank_value]) begin
+                $fatal(1, "bank %0d did not become complete after 16 writes",
+                       bank_value);
             end
+        end
+    endtask
+
+    task automatic configure_loaded_matrix;
+        begin
+            configure_loaded_matrix_bank(1'b0);
+        end
+    endtask
+
+    task automatic commit_matrix_bank(
+        input logic bank_value,
+        input logic [7:0] version_value
+    );
+        begin
+            @(negedge clk);
+            commit_bank = bank_value;
+            commit_version = version_value;
+            commit_valid = 1'b1;
+            timeout_count = 0;
+            while (!commit_ready && timeout_count < 50) begin
+                @(posedge clk);
+                timeout_count = timeout_count + 1;
+            end
+            if (!commit_ready) begin
+                $fatal(1, "commit timeout for bank %0d", bank_value);
+            end
+            @(posedge clk);
+            @(negedge clk);
+            commit_valid = 1'b0;
+        end
+    endtask
+
+    task automatic probe_stalled_interfaces;
+        begin
+            // No complete matrix exists, so both payloads must remain stalled.
+            @(negedge clk);
+            in_real = 16'sd1234;
+            in_imag = -16'sd567;
+            in_last = 1'b0;
+            in_valid = 1'b1;
+            commit_bank = 1'b1;
+            commit_version = 8'h5A;
+            commit_valid = 1'b1;
+            repeat (3) @(posedge clk);
+            if (in_ready || commit_ready) begin
+                $fatal(1, "incomplete matrices unexpectedly accepted traffic");
+            end
+            @(negedge clk);
+            in_valid = 1'b0;
+            in_last = 1'b0;
+            commit_valid = 1'b0;
+        end
+    endtask
+
+    task automatic probe_cfg_stall_while_busy;
+        begin
+            if (!busy) $fatal(1, "configuration stall probe requires busy core");
+            @(negedge clk);
+            cfg_bank = active_bank;
+            cfg_row = 2'd0;
+            cfg_col = 2'd0;
+            cfg_real = matrix_real[0];
+            cfg_imag = matrix_imag[0];
+            cfg_valid = 1'b1;
+            repeat (3) @(posedge clk);
+            if (cfg_ready) $fatal(1, "active bank became writable while busy");
+            @(negedge clk);
+            cfg_valid = 1'b0;
         end
     endtask
 
@@ -199,7 +268,8 @@ module tb_precoder_core;
 
     task automatic check_one_output(
         input integer expected_idx,
-        input integer stall_cycles
+        input integer stall_cycles,
+        input logic [7:0] expected_version
     );
         integer stall;
         begin
@@ -219,7 +289,7 @@ module tb_precoder_core;
                     || (out_real !== expected_real[expected_idx])
                     || (out_imag !== expected_imag[expected_idx])
                     || (out_saturated !== expected_sat[expected_idx])
-                    || (out_version !== 8'd0)
+                    || (out_version !== expected_version)
                     || (out_last !== (expected_idx == 3))) begin
                 error_count = error_count + 1;
                 $display("FAIL core case=%0d ant=%0d expected=(%0d,%0d,sat=%0d,last=%0d) actual=(%0d,%0d,sat=%0d,last=%0d,idx=%0d)",
@@ -324,6 +394,7 @@ module tb_precoder_core;
         @(negedge clk);
         rst_n = 1'b1;
 
+        probe_stalled_interfaces();
         reset_mid_vector_test();
 
         vector_file = $fopen("build/rtl_vectors/precoder_core.txt", "r");
@@ -363,7 +434,7 @@ module tb_precoder_core;
                             (case_id == 0) && (element == 0));
             end
             for (antenna = 0; antenna < 4; antenna = antenna + 1) begin
-                check_one_output(antenna, (case_id + antenna) % 4);
+                check_one_output(antenna, (case_id + antenna) % 4, 8'h00);
             end
 
             if ((case_id == 0) && !protocol_error) begin
@@ -374,6 +445,44 @@ module tb_precoder_core;
             end
         end
         $fclose(vector_file);
+
+        // Build Bank 1 first after reset to cover the bank1-only completeness
+        // state, then exercise high/low nonzero versions and both bank switches.
+        apply_reset();
+        configure_loaded_matrix_bank(1'b1);
+        commit_matrix_bank(1'b1, 8'hA5);
+        for (element = 0; element < 4; element = element + 1) begin
+            send_symbol(element, element % 2, 1'b0);
+        end
+        probe_cfg_stall_while_busy();
+        for (antenna = 0; antenna < 4; antenna = antenna + 1) begin
+            check_one_output(antenna, antenna % 3, 8'hA5);
+        end
+
+        configure_loaded_matrix_bank(1'b0);
+        commit_matrix_bank(1'b0, 8'h2A);
+        for (element = 0; element < 4; element = element + 1) begin
+            send_symbol(element, (element + 1) % 2, 1'b0);
+        end
+        probe_cfg_stall_while_busy();
+        commit_matrix_bank(1'b1, 8'h00);
+        if (!commit_pending) begin
+            $fatal(1, "busy commit did not enter pending state");
+        end
+        for (antenna = 0; antenna < 4; antenna = antenna + 1) begin
+            check_one_output(antenna, (antenna + 1) % 3, 8'h2A);
+        end
+        #1;
+        if ((active_bank !== 1'b1) || (active_version !== 8'h00)
+                || commit_pending) begin
+            $fatal(1, "pending Bank1 commit did not apply at vector boundary");
+        end
+        for (element = 0; element < 4; element = element + 1) begin
+            send_symbol(element, element % 2, 1'b0);
+        end
+        for (antenna = 0; antenna < 4; antenna = antenna + 1) begin
+            check_one_output(antenna, antenna % 2, 8'h00);
+        end
 
         if (error_count != 0) begin
             $fatal(1, "precoder_core: %0d output comparisons failed", error_count);
