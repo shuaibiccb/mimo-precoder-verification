@@ -183,3 +183,7 @@ COVERAGE=1 bash sim/run_vcs.sh
 ## 第七阶段：综合与 PPA 基线
 
 `synth/` 提供 Yosys 可综合性检查和 Design Compiler 工艺映射脚本，默认以 `precoder_core` 为顶层、100 MHz 为第一版时钟目标。Yosys 用于无工艺库的结构/资源基线；DC 必须通过 `DC_TARGET_LIBRARY` 指定服务器上的标准单元 `.db`，生成面积、时序、约束和资源报告。详细使用方法见 `docs/synthesis.md`。
+
+## new第3阶段：AXI wrapper RTL
+
+`axi_precoder_wrapper.sv` 在已验证的 `precoder_core` 外增加32位AXI4-Stream输入/输出和32位AXI4-Lite控制接口，核心内部的简单 `valid/ready` 接口保持不变。AXI-Lite寄存器模块支持矩阵配置、Bank commit、状态/错误读取、W1C清错和性能计数器；流接口模块检查4拍向量的 `TLAST/TKEEP` 并直接传递背压。接口细节见 `docs/axi_interface.md`，定向测试已加入服务器统一VCS回归。

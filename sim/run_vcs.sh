@@ -121,6 +121,18 @@ run_test precoder_hot_update tb/core/tb_precoder_hot_update.sv \
   rtl/precoder_core.sv \
   tb/assertions/precoder_core_sva.sv \
   "${coverage_sources[@]}"
+run_test axi_precoder_wrapper tb/axi/tb_axi_precoder_wrapper.sv \
+  rtl/complex_mult.sv \
+  rtl/complex_mac.sv \
+  rtl/fixed_round_sat.sv \
+  rtl/matrix_storage.sv \
+  rtl/symbol_buffer.sv \
+  rtl/precoder_core.sv \
+  rtl/axi_stream_input.sv \
+  rtl/axi_stream_output.sv \
+  rtl/performance_counters.sv \
+  rtl/axi_lite_regs.sv \
+  rtl/axi_precoder_wrapper.sv
 
 echo "PASS: all VCS unit/core tests completed"
 if [[ "${COVERAGE:-0}" == "1" ]]; then

@@ -66,3 +66,17 @@
 ## 第六阶段覆盖率驱动补测
 
 根据首轮 URG 基线补充 Bank0→Bank1 忙时提交、Bank1→Bank0 空闲回切、空闲零版本提交和回切后的端到端结果检查。版本覆盖点按零、低非零和高非零三类建模；输出元数据交叉覆盖排除“天线0～2带 `last`”和“天线3不带 `last`”两类协议不可达组合，避免无意义 bin 人为拉低覆盖率。
+
+## new第3阶段 AXI wrapper RTL验证
+
+`tb/axi/tb_axi_precoder_wrapper.sv` 对第一版AXI封装执行定向自检，覆盖：
+
+- AXI4-Lite AW/W通道以两种先后顺序独立到达；
+- IP标识、状态、活动Bank、错误状态和性能计数器读取；
+- 通过Bank0/Bank1地址窗口配置单位矩阵；
+- AXI4-Stream 4拍输入输出、`TKEEP`、`TLAST`和`TUSER`映射；
+- 输出反压期间payload和sideband稳定；
+- 提前/缺失`TLAST`、非法`TKEEP`、非法commit和非法地址错误锁存；
+- `ERROR_STATUS` W1C、性能计数器清零和Bank版本commit。
+
+服务器执行 `bash sim/run_vcs.sh` 时会同时运行原有单元/核心回归和该wrapper测试。
