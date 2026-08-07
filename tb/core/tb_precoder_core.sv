@@ -114,6 +114,7 @@ module tb_precoder_core;
         begin
             @(negedge clk);
             rst_n = 1'b0;
+            @(posedge clk);
             #1;
             if ((busy !== 1'b0) || (out_valid !== 1'b0)
                     || (matrix_complete !== 1'b0) || (bank_complete !== 2'b00)) begin
@@ -219,6 +220,7 @@ module tb_precoder_core;
             in_valid = 1'b0;
             in_last = 1'b0;
             commit_valid = 1'b0;
+            @(posedge clk);
             #1;
             if ((busy !== 1'b0) || (out_valid !== 1'b0)
                     || (matrix_complete !== 1'b0)

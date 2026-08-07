@@ -69,6 +69,7 @@ report_congestion -grc_based > [file join $report_dir congestion_route.rpt]
 verify_zrt_route > [file join $report_dir verify_route.rpt]
 verify_lvs -ignore_floating_port -ignore_floating_net > [file join $report_dir verify_lvs.rpt]
 write_verilog -pg [file join $report_dir precoder_core_postroute.v]
+write_verilog -no_physical_only_cells [file join $report_dir precoder_core_postroute_sim.v]
 write_sdf -version 2.1 [file join $report_dir precoder_core_postroute.sdf]
 write_parasitics -output [file join $report_dir precoder_core_postroute.spef]
 save_mw_cel -as route

@@ -18,7 +18,9 @@ The final server run produced:
 - Open routed nets: `0`
 - LVS shorts/opens: `0/0`
 - Cell area reported by ICC: `71867.520234 um^2`
-- Post-route artifacts: `reports/generated/icc/precoder_core_postroute.v`, `.sdf`, `.spef.max`, `.spef.min`
+- Post-route artifacts: `reports/generated/icc/precoder_core_postroute.v`, `precoder_core_postroute_sim.v`, `.sdf`, `.spef.max`, `.spef.min`
+
+`precoder_core_postroute.v` retains power/ground and filler instances for physical checks. Use `precoder_core_postroute_sim.v` for SDF simulation because the foundry logic model does not define the physical-only `FDCAPVHS*` filler cells; the SDF contains no timing entries for those fillers.
 
 Run independent post-route STA with:
 
@@ -27,5 +29,13 @@ bash pnr/run_pt_postroute.sh
 ```
 
 PrimeTime independently reported setup slack `+2.15 ns`, hold slack `+0.10 ns`, and zero violating paths using the extracted SPEF.
+
+Run the final post-route SDF gate regression with:
+
+```bash
+bash sim/run_postroute_gate_vcs.sh
+```
+
+The verified run annotated the ICC SDF with zero errors and zero warnings. Both `precoder_core` (15 cases and 60 output comparisons) and `precoder_hot_update` passed. Runtime reset checks wait for one active clock edge before sampling reset state so that the same test remains valid with real post-route propagation delay.
 
 The physical check still reports the package's native TF/ITF min-width and min-spacing mismatch warnings (`TLUP-004/TLUP-005`) and one floorplan grid warning (`PSYN-523`). These are documented process-package warnings; the final route and LVS checks reported no errors.
