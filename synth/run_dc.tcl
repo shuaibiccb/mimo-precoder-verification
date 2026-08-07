@@ -44,5 +44,6 @@ report_resources -hierarchy > [file join $report_dir resources.rpt]
 
 write -format verilog -hierarchy -output [file join $report_dir precoder_core_mapped.v]
 write_sdc [file join $report_dir precoder_core_mapped.sdc]
+write_sdf -version 2.1 [file join $report_dir precoder_core_mapped.sdf]
 write -format ddc -hierarchy -output [file join $report_dir precoder_core.ddc]
 exit

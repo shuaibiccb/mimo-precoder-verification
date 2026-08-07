@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -eo pipefail
 
 ROOT_DIR=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT_DIR"
@@ -30,14 +30,33 @@ done
 
 mkdir -p build/vcs
 
+model_compile_opts=(-Dfunctional)
+sdf_run_opts=()
+if [[ "${SDF:-0}" == "1" ]]; then
+  SDF_FILE="${SDF_FILE:-$ROOT_DIR/reports/generated/dc/precoder_core_mapped.sdf}"
+  if [[ ! -s "$SDF_FILE" ]]; then
+    echo "ERROR: SDF file not found: $SDF_FILE" >&2
+    exit 1
+  fi
+  model_compile_opts=(-negdelay +neg_tchk)
+  sdf_run_opts=(+neg_tchk)
+fi
+
 run_gate_test() {
   local name=$1
   local testbench=$2
-  vcs -full64 -sverilog -timescale=1ns/1ps -debug_access+all -Dfunctional \
+  local compile_opts=("${model_compile_opts[@]}")
+  if [[ "${SDF:-0}" == "1" ]]; then
+    compile_opts=(-negdelay +neg_tchk
+      -sdf "max:tb_${name}.dut:$SDF_FILE")
+  fi
+  vcs -full64 -sverilog -timescale=1ns/1ps -debug_access+all \
+    "${compile_opts[@]}" \
     "$CELL_MODEL" "$NETLIST" "$testbench" \
     -top "tb_${name}" -o "build/vcs/simv_${name}_mapped" \
     -l "build/vcs/compile_${name}_mapped.log"
-  "build/vcs/simv_${name}_mapped" -l "build/vcs/run_${name}_mapped.log"
+  "build/vcs/simv_${name}_mapped" "${sdf_run_opts[@]}" \
+    -l "build/vcs/run_${name}_mapped.log"
   if grep -Eq "Assertion.*failed|Offending|^[[:space:]]*Error:" \
       "build/vcs/run_${name}_mapped.log"; then
     echo "ERROR: gate simulation failure in $name" >&2
@@ -47,4 +66,8 @@ run_gate_test() {
 
 run_gate_test precoder_core tb/core/tb_precoder_core.sv
 run_gate_test precoder_hot_update tb/core/tb_precoder_hot_update.sv
-echo "PASS: zero-delay gate-level tests completed"
+if [[ "${SDF:-0}" == "1" ]]; then
+  echo "PASS: SDF gate-level tests completed"
+else
+  echo "PASS: zero-delay gate-level tests completed"
+fi
