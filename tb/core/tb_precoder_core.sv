@@ -362,6 +362,26 @@ module tb_precoder_core;
         end
     endtask
 
+    task automatic reset_compute_capture_test;
+        integer idx;
+        begin
+            // Reset once while the MAC pipeline is computing.
+            configure_loaded_matrix();
+            for (idx = 0; idx < 4; idx = idx + 1) begin
+                send_symbol(idx, 0, 1'b0);
+            end
+            apply_reset();
+
+            // Repeat and wait until the compute loop advances into capture.
+            configure_loaded_matrix();
+            for (idx = 0; idx < 4; idx = idx + 1) begin
+                send_symbol(idx, 0, 1'b0);
+            end
+            repeat (4) @(posedge clk);
+            apply_reset();
+        end
+    endtask
+
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             previous_stall    <= 1'b0;
@@ -421,6 +441,7 @@ module tb_precoder_core;
 
         probe_stalled_interfaces();
         reset_mid_vector_test();
+        reset_compute_capture_test();
 
         vector_file = $fopen("build/rtl_vectors/precoder_core.txt", "r");
         if (vector_file == 0) begin
@@ -479,6 +500,7 @@ module tb_precoder_core;
         for (element = 0; element < 4; element = element + 1) begin
             send_symbol(element, element % 2, 1'b0);
         end
+        write_coefficient(1'b0, 0, 0, matrix_real[0], matrix_imag[0]);
         start_cfg_stall_while_busy();
         for (antenna = 0; antenna < 4; antenna = antenna + 1) begin
             check_one_output(antenna, antenna % 3, 8'hA5);
@@ -507,8 +529,17 @@ module tb_precoder_core;
         for (element = 0; element < 4; element = element + 1) begin
             send_symbol(element, element % 2, 1'b0);
         end
+        commit_matrix_bank(1'b0, 8'hC3);
+        if (!commit_pending) begin
+            $fatal(1, "busy Bank0 commit did not enter pending state");
+        end
         for (antenna = 0; antenna < 4; antenna = antenna + 1) begin
             check_one_output(antenna, antenna % 2, 8'h00);
+        end
+        #1;
+        if ((active_bank !== 1'b0) || (active_version !== 8'hC3)
+                || commit_pending) begin
+            $fatal(1, "pending Bank0 commit did not apply at vector boundary");
         end
 
         if (error_count != 0) begin
