@@ -187,3 +187,7 @@ COVERAGE=1 bash sim/run_vcs.sh
 ## new第3阶段：AXI wrapper RTL
 
 `axi_precoder_wrapper.sv` 在已验证的 `precoder_core` 外增加32位AXI4-Stream输入/输出和32位AXI4-Lite控制接口，核心内部的简单 `valid/ready` 接口保持不变。AXI-Lite寄存器模块支持矩阵配置、Bank commit、状态/错误读取、W1C清错和性能计数器；流接口模块检查4拍向量的 `TLAST/TKEEP` 并直接传递背压。接口细节见 `docs/axi_interface.md`，定向测试已加入服务器统一VCS回归。
+
+## new第4阶段：定向AXI接口验证
+
+新增 `tb/axi/tb_axi_precoder_stress.sv`，验证AXI-Lite读写响应在反压时保持稳定，覆盖复位取消、非对齐/非法地址、部分字节写、错误状态清除，以及AXI-Stream输出反压和元数据边界。该压力测试已纳入 `sim/run_vcs.sh`。

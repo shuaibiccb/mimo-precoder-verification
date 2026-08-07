@@ -80,3 +80,16 @@
 - `ERROR_STATUS` W1C、性能计数器清零和Bank版本commit。
 
 服务器执行 `bash sim/run_vcs.sh` 时会同时运行原有单元/核心回归和该wrapper测试。
+
+## new第4阶段 定向AXI接口验证
+
+`tb/axi/tb_axi_precoder_stress.sv` 在基础功能测试之外，增加以下协议压力场景：
+
+- 复位期间取消未完成的AXI-Lite读写，并检查READY/VALID回到空闲状态；
+- `BREADY=0`时保持`BVALID/BRESP`稳定；
+- `RREADY=0`时保持`RVALID/RDATA/RRESP`稳定；
+- 非对齐地址、部分`WSTRB`、未知寄存器和矩阵窗口读访问均返回`SLVERR`；
+- 检查错误状态中的decode/alignment位，并通过CONTROL清错；
+- AXI-Stream完整4拍向量、输出反压期间payload稳定以及天线编号/`TLAST`检查。
+
+该测试与原有 `tb_axi_precoder_wrapper.sv` 一起由 `sim/run_vcs.sh` 自动编译运行。

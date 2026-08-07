@@ -133,6 +133,18 @@ run_test axi_precoder_wrapper tb/axi/tb_axi_precoder_wrapper.sv \
   rtl/performance_counters.sv \
   rtl/axi_lite_regs.sv \
   rtl/axi_precoder_wrapper.sv
+run_test axi_precoder_stress tb/axi/tb_axi_precoder_stress.sv \
+  rtl/complex_mult.sv \
+  rtl/complex_mac.sv \
+  rtl/fixed_round_sat.sv \
+  rtl/matrix_storage.sv \
+  rtl/symbol_buffer.sv \
+  rtl/precoder_core.sv \
+  rtl/axi_stream_input.sv \
+  rtl/axi_stream_output.sv \
+  rtl/performance_counters.sv \
+  rtl/axi_lite_regs.sv \
+  rtl/axi_precoder_wrapper.sv
 
 echo "PASS: all VCS unit/core tests completed"
 if [[ "${COVERAGE:-0}" == "1" ]]; then
