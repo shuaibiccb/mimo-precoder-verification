@@ -200,6 +200,8 @@ module tb_precoder_core;
     task automatic probe_stalled_interfaces;
         begin
             // No complete matrix exists, so both payloads must remain stalled.
+            // Reset is the only legal way to cancel these permanently blocked
+            // transfers without violating the ready/valid stability contract.
             @(negedge clk);
             in_real = 16'sd1234;
             in_imag = -16'sd567;
@@ -213,13 +215,22 @@ module tb_precoder_core;
                 $fatal(1, "incomplete matrices unexpectedly accepted traffic");
             end
             @(negedge clk);
+            rst_n = 1'b0;
             in_valid = 1'b0;
             in_last = 1'b0;
             commit_valid = 1'b0;
+            #1;
+            if ((busy !== 1'b0) || (out_valid !== 1'b0)
+                    || (matrix_complete !== 1'b0)
+                    || (bank_complete !== 2'b00)) begin
+                $fatal(1, "reset did not clear stalled interface probe");
+            end
+            @(negedge clk);
+            rst_n = 1'b1;
         end
     endtask
 
-    task automatic probe_cfg_stall_while_busy;
+    task automatic start_cfg_stall_while_busy;
         begin
             if (!busy) $fatal(1, "configuration stall probe requires busy core");
             @(negedge clk);
@@ -231,6 +242,20 @@ module tb_precoder_core;
             cfg_valid = 1'b1;
             repeat (3) @(posedge clk);
             if (cfg_ready) $fatal(1, "active bank became writable while busy");
+        end
+    endtask
+
+    task automatic finish_cfg_stall_probe;
+        begin
+            timeout_count = 0;
+            while (!cfg_ready && timeout_count < 100) begin
+                @(negedge clk);
+                timeout_count = timeout_count + 1;
+            end
+            if (!cfg_ready) begin
+                $fatal(1, "stalled configuration did not become writable");
+            end
+            @(posedge clk);
             @(negedge clk);
             cfg_valid = 1'b0;
         end
@@ -454,17 +479,18 @@ module tb_precoder_core;
         for (element = 0; element < 4; element = element + 1) begin
             send_symbol(element, element % 2, 1'b0);
         end
-        probe_cfg_stall_while_busy();
+        start_cfg_stall_while_busy();
         for (antenna = 0; antenna < 4; antenna = antenna + 1) begin
             check_one_output(antenna, antenna % 3, 8'hA5);
         end
+        finish_cfg_stall_probe();
 
         configure_loaded_matrix_bank(1'b0);
         commit_matrix_bank(1'b0, 8'h2A);
         for (element = 0; element < 4; element = element + 1) begin
             send_symbol(element, (element + 1) % 2, 1'b0);
         end
-        probe_cfg_stall_while_busy();
+        start_cfg_stall_while_busy();
         commit_matrix_bank(1'b1, 8'h00);
         if (!commit_pending) begin
             $fatal(1, "busy commit did not enter pending state");
@@ -477,6 +503,7 @@ module tb_precoder_core;
                 || commit_pending) begin
             $fatal(1, "pending Bank1 commit did not apply at vector boundary");
         end
+        finish_cfg_stall_probe();
         for (element = 0; element < 4; element = element + 1) begin
             send_symbol(element, element % 2, 1'b0);
         end
