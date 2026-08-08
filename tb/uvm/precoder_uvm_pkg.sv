@@ -656,4 +656,75 @@ package precoder_uvm_pkg;
             phase.drop_objection(this);
         endtask
     endclass
+
+    class precoder_numeric_worst_test extends uvm_test;
+        `uvm_component_utils(precoder_numeric_worst_test)
+        precoder_env env;
+        function new(string name, uvm_component parent); super.new(name,parent); endfunction
+        function void build_phase(uvm_phase phase);
+            super.build_phase(phase);
+            uvm_config_db#(int)::set(this,"env.stream_out_agent.driver","stall_percent",50);
+            env=precoder_env::type_id::create("env",this);
+        endfunction
+        task run_phase(uvm_phase phase);
+            programmable_matrix_sequence cfg;
+            programmable_vector_sequence seq;
+            axi_stream_out_item out;
+            int signed expected_real[0:3];
+            int signed expected_imag[0:3];
+            bit expected_saturated[0:3];
+            integer i;
+            phase.raise_objection(this);
+            wait(env.lite_agent.vif.aresetn); repeat(2) @(posedge env.lite_agent.vif.aclk);
+
+            // Feedback search seed 20260808: maximum accumulator/absolute-error case.
+            cfg=programmable_matrix_sequence::type_id::create("numeric_worst_matrix");
+            cfg.bank=0;
+            cfg.coeff_real[0]=32742;   cfg.coeff_imag[0]=32767;
+            cfg.coeff_real[1]=-32768;  cfg.coeff_imag[1]=32767;
+            cfg.coeff_real[2]=-32730;  cfg.coeff_imag[2]=32767;
+            cfg.coeff_real[3]=-32768;  cfg.coeff_imag[3]=-32765;
+            cfg.coeff_real[4]=-2762;   cfg.coeff_imag[4]=-14753;
+            cfg.coeff_real[5]=32767;   cfg.coeff_imag[5]=-4554;
+            cfg.coeff_real[6]=30522;   cfg.coeff_imag[6]=19766;
+            cfg.coeff_real[7]=-19094;  cfg.coeff_imag[7]=30282;
+            cfg.coeff_real[8]=-26954;  cfg.coeff_imag[8]=4544;
+            cfg.coeff_real[9]=-29814;  cfg.coeff_imag[9]=-18705;
+            cfg.coeff_real[10]=-5125;  cfg.coeff_imag[10]=-29603;
+            cfg.coeff_real[11]=-32740; cfg.coeff_imag[11]=585;
+            cfg.coeff_real[12]=32767;  cfg.coeff_imag[12]=-3617;
+            cfg.coeff_real[13]=-4693;  cfg.coeff_imag[13]=-19495;
+            cfg.coeff_real[14]=32642;  cfg.coeff_imag[14]=-32768;
+            cfg.coeff_real[15]=-19644; cfg.coeff_imag[15]=-20931;
+            cfg.start(env.lite_agent.sequencer);
+
+            seq=programmable_vector_sequence::type_id::create("numeric_worst_vector");
+            seq.sample_real[0]=32738;  seq.sample_imag[0]=-32768;
+            seq.sample_real[1]=-32768; seq.sample_imag[1]=-32768;
+            seq.sample_real[2]=-32768; seq.sample_imag[2]=-32768;
+            seq.sample_real[3]=-32768; seq.sample_imag[3]=32767;
+            seq.start(env.stream_in_agent.sequencer);
+
+            expected_real[0]=32767;  expected_imag[0]=-86;
+            expected_real[1]=-32768; expected_imag[1]=-32768;
+            expected_real[2]=-7199;  expected_imag[2]=32767;
+            expected_real[3]=-21035; expected_imag[3]=-21558;
+            expected_saturated[0]=1; expected_saturated[1]=1;
+            expected_saturated[2]=1; expected_saturated[3]=0;
+            for (i=0;i<4;i=i+1) begin
+                env.output_fifo.get(out);
+                if (($signed(out.real_part) != expected_real[i])
+                        || ($signed(out.imag_part) != expected_imag[i]))
+                    `uvm_fatal("NUMERIC_WORST",$sformatf("antenna %0d expected %0d+%0dj got %0d+%0dj",i,expected_real[i],expected_imag[i],out.real_part,out.imag_part))
+                if (out.saturated !== expected_saturated[i])
+                    `uvm_fatal("NUMERIC_WORST",$sformatf("antenna %0d expected saturation %0d got %0d",i,expected_saturated[i],out.saturated))
+                if (out.version != 0)
+                    `uvm_fatal("NUMERIC_WORST",$sformatf("antenna %0d expected version 0 got %0d",i,out.version))
+            end
+            if (env.scoreboard.saturated_output_count != 3)
+                `uvm_fatal("NUMERIC_WORST",$sformatf("expected 3 saturated outputs, got %0d",env.scoreboard.saturated_output_count))
+            `uvm_info("PHASE10","worst numeric case matched 4 bit-exact RTL outputs and saturation flags",UVM_LOW)
+            phase.drop_objection(this);
+        endtask
+    endclass
 endpackage

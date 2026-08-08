@@ -117,3 +117,7 @@ scoreboard维护两套任意4x4复数Q14矩阵，并在输入向量边界锁存B
 ## new第9阶段 SVA协议与内部控制检查
 
 SVA正式加入UVM编译和随机回归。wrapper checker负责AXI-Stream稳定性、事务边界和AXI-Lite请求/响应对应关系；core checker负责MAC控制、事务Bank/版本锁存、忙时commit和输出完成关系。VCS assertion coverage由URG合并到 `build/vcs/uvm/regression/sva_report/dashboard.html`。20个seed无UVM/SVA错误，断言覆盖率为97.30%，详见 `docs/stage9_sva_protocol_checks.md`。
+
+## new第10阶段 最坏定点数值场景搜索
+
+NumPy分析器批量执行Q1.14位精确运算并分别统计输入量化、舍入/饱和和端到端EVM。正式搜索包含100000组随机场景和20000组反馈变异场景。归一化QPSK/16QAM/64QAM没有饱和且P99端到端EVM低于`3e-4`；峰值累加器和最大误差样例固化为UVM测试`precoder_numeric_worst_test`，服务器VCS结果与位精确期望完全一致。详见 `docs/stage10_numeric_search.md`。

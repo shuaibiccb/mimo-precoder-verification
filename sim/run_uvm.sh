@@ -59,11 +59,22 @@ if grep -Eq "UVM_ERROR[[:space:]]*:[[:space:]]*[1-9]|UVM_FATAL[[:space:]]*:[[:sp
   echo "ERROR: UVM or SVA errors were reported" >&2
   exit 1
 fi
-if [[ "$uvm_test" == "precoder_base_test" ]]; then
-  grep -q "UVM scoreboard checked 4 output beats" "$run_log"
-else
-  grep -q "\[PHASE8\].*checked" "$run_log"
-  grep -q "\[PHASE9_SVA_AXI\].*reads=[1-9]" "$run_log"
-  grep -Eq "\[PHASE9_SVA_CORE\].*busy_commits=[2-9].*bank_switches=[2-9]" "$run_log"
-fi
+case "$uvm_test" in
+  precoder_base_test)
+    grep -q "UVM scoreboard checked 4 output beats" "$run_log"
+    ;;
+  precoder_random_test)
+    grep -q "\[PHASE8\].*checked" "$run_log"
+    grep -q "\[PHASE9_SVA_AXI\].*reads=[1-9]" "$run_log"
+    grep -Eq "\[PHASE9_SVA_CORE\].*busy_commits=[2-9].*bank_switches=[2-9]" "$run_log"
+    ;;
+  precoder_numeric_worst_test)
+    grep -q "\[PHASE10\].*4 bit-exact RTL outputs and saturation flags" "$run_log"
+    grep -q "\[PHASE9_SVA_CORE\].*accepted=1 completed=1" "$run_log"
+    ;;
+  *)
+    echo "ERROR: run_uvm.sh has no completion check for $uvm_test" >&2
+    exit 1
+    ;;
+esac
 echo "PASS: $uvm_test completed with seed $seed"

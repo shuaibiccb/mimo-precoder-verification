@@ -211,3 +211,7 @@ UVM scoreboard已支持任意Bank0/Bank1复数矩阵，AXI-Lite monitor会跟踪
 ## new第9阶段：SVA断言与协议、内部控制检查
 
 SVA已正式接入UVM随机回归。AXI checker检查流接口反压、输出事务边界和AXI-Lite响应对应关系；core checker检查MAC清零/使能、事务Bank和版本锁存、忙时commit pending、完成计数和双Bank切换。20个seed、240个向量和40次忙时commit全部通过，UVM/SVA错误为0，断言覆盖率为97.30%。报告入口为 `build/vcs/uvm/regression/sva_report/dashboard.html`，详见 `docs/stage9_sva_protocol_checks.md`。
+
+## new第10阶段：最坏定点数值场景搜索与EVM分析
+
+新增向量化Q1.14数值分析和反馈变异搜索，正式运行覆盖100000组随机输入与20000组反馈样例。归一化QPSK/16QAM/64QAM共75000组无饱和，P99端到端EVM低于`3e-4`；无功率约束的全幅压力输入饱和用例率为99.804%。结论是Q1.14适合带功率归一化的当前数据通路，但接口规格必须明确缩放要求。峰值累加器样例已固化为`precoder_numeric_worst_test`并通过VCS位精确检查，详见 `docs/stage10_numeric_search.md`。
