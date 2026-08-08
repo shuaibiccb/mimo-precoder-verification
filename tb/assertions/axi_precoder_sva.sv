@@ -39,7 +39,7 @@ module axi_precoder_sva (
     logic [2:0] expected_output_ant;
     logic [2:0] input_vector_beat;
     logic [7:0] input_tid;
-    logic [7:0] accepted_tid;
+    logic [255:0] outstanding_tid;
     logic [7:0] vector_version;
     logic [7:0] vector_tid;
     logic aw_pending;
@@ -59,7 +59,7 @@ module axi_precoder_sva (
             expected_output_ant <= 3'd0;
             input_vector_beat <= 3'd0;
             input_tid <= 8'd0;
-            accepted_tid <= 8'd0;
+            outstanding_tid <= '0;
             vector_version <= 8'd0;
             vector_tid <= 8'd0;
             aw_pending <= 1'b0;
@@ -86,8 +86,9 @@ module axi_precoder_sva (
                 input_beat_count <= input_beat_count + 1;
                 if (input_vector_beat == 3'd0) begin
                     input_tid <= s_axis_tid;
-                    accepted_tid <= s_axis_tid;
                 end
+                if (s_axis_tlast)
+                    outstanding_tid[s_axis_tid] <= 1'b1;
                 if (s_axis_tlast)
                     input_vector_beat <= 3'd0;
                 else
@@ -113,6 +114,8 @@ module axi_precoder_sva (
                 read_outstanding <= 1'b0;
                 read_response_count <= read_response_count + 1;
             end
+            if (m_axis_tvalid && m_axis_tready && m_axis_tlast)
+                outstanding_tid[m_axis_tid] <= 1'b0;
         end
     end
 
@@ -201,9 +204,9 @@ module axi_precoder_sva (
             s_axis_tid == input_tid;
     endproperty
 
-    property p_output_tid_matches_input;
+    property p_output_tid_is_outstanding;
         @(posedge aclk) disable iff (!aresetn)
-        m_axis_tvalid |-> m_axis_tid == accepted_tid;
+        m_axis_tvalid |-> outstanding_tid[m_axis_tid];
     endproperty
 
     assert property (p_s_axis_stable_while_stalled)
@@ -234,8 +237,8 @@ module axi_precoder_sva (
         else $error("AXI-Stream input packet length does not match MODE");
     assert property (p_input_tid_stable_within_vector)
         else $error("AXI-Stream input transaction ID changed within a vector");
-    assert property (p_output_tid_matches_input)
-        else $error("AXI-Stream output transaction ID does not match input");
+    assert property (p_output_tid_is_outstanding)
+        else $error("AXI-Stream output transaction ID is not outstanding");
 
     cover property (@(posedge aclk) disable iff (!aresetn)
         s_axil_awvalid && s_axil_awready ##[1:8]

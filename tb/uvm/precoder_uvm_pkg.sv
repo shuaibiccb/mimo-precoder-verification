@@ -293,9 +293,33 @@ package precoder_uvm_pkg;
         function void build_phase(uvm_phase phase); super.build_phase(phase); if (!uvm_config_db#(virtual axi_stream_if)::get(this,"","vif",vif)) `uvm_fatal("NOVIF","stream output vif missing"); monitor=axi_stream_out_monitor::type_id::create("monitor",this); driver=axi_stream_out_ready_driver::type_id::create("driver",this); uvm_config_db#(virtual axi_stream_if)::set(this,"monitor","vif",vif); uvm_config_db#(virtual axi_stream_if)::set(this,"driver","vif",vif); endfunction
     endclass
 
+    class precoder_expected_transaction extends uvm_object;
+        `uvm_object_utils(precoder_expected_transaction)
+        bit [7:0] tid;
+        bit mode_8x8;
+        bit format_12;
+        bit truncate_mode;
+        bit wrap_mode;
+        bit bank;
+        bit [7:0] version;
+        int dimension;
+        int signed expected_real[0:7];
+        int signed expected_imag[0:7];
+        bit expected_saturated[0:7];
+        real floating_real[0:7];
+        real floating_imag[0:7];
+        int output_index;
+        real error_energy;
+        real reference_energy;
+        function new(string name="precoder_expected_transaction");
+            super.new(name);
+            output_index=0; error_energy=0.0; reference_energy=0.0;
+        endfunction
+    endclass
+
     // The scoreboard mirrors both coefficient banks from completed AXI-Lite
-    // writes. Mode, bank, and version are snapshotted at transaction start so
-    // a busy commit or mode request cannot change an in-flight vector.
+    // writes. Expected transactions are indexed by TID so output packets may
+    // complete in a different order from input acceptance.
     class precoder_scoreboard extends uvm_component;
         `uvm_component_utils(precoder_scoreboard)
         uvm_analysis_imp_input#(axi_stream_in_item, precoder_scoreboard) input_imp;
@@ -305,16 +329,7 @@ package precoder_uvm_pkg;
         bit signed [15:0] matrix_imag[0:1][0:7][0:7];
         bit signed [15:0] vector_real[0:7];
         bit signed [15:0] vector_imag[0:7];
-        int signed expected_real[0:7];
-        int signed expected_imag[0:7];
-        bit expected_saturated[0:7];
-        real floating_real[0:7];
-        real floating_imag[0:7];
         int input_index;
-        int output_index;
-        bit vector_active;
-        bit transaction_bank;
-        bit [7:0] transaction_version;
         bit [7:0] transaction_tid;
         bit active_bank;
         bit [7:0] active_version;
@@ -326,9 +341,15 @@ package precoder_uvm_pkg;
         bit transaction_format_12;
         bit transaction_truncate;
         bit transaction_wrap;
+        bit transaction_bank;
+        bit [7:0] transaction_version;
         bit pending;
         bit pending_bank;
         bit [7:0] pending_version;
+        precoder_expected_transaction expected_by_tid[bit [7:0]];
+        precoder_expected_transaction active_output_transaction;
+        bit vector_active;
+        bit [7:0] completed_tid_order[$];
         // Track transaction IDs independently from the ordered numerical model.
         // IDs may be reused after completion, but never while outstanding.
         bit outstanding_tid[0:255];
@@ -341,8 +362,6 @@ package precoder_uvm_pkg;
         int unknown_output_count;
         int duplicate_completion_count;
         int tid_mismatch_count;
-        real error_energy;
-        real reference_energy;
         real last_evm;
         real max_evm;
         int checked_vectors;
@@ -357,12 +376,14 @@ package precoder_uvm_pkg;
             super.build_phase(phase);
             if (!uvm_config_db#(virtual axi_stream_if)::get(this,"","reset_vif",reset_vif))
                 reset_vif=null;
-            input_index=0; output_index=0; vector_active=0;
+            input_index=0; vector_active=0;
             active_bank=0; active_version=0; active_mode_8x8=0; active_format_12=0;
             active_truncate=0; active_wrap=0; transaction_tid=0;
             transaction_mode_8x8=0; transaction_format_12=0;
             transaction_truncate=0; transaction_wrap=0; pending=0;
-            error_energy=0.0; reference_energy=0.0; last_evm=0.0; max_evm=0.0;
+            last_evm=0.0; max_evm=0.0;
+            expected_by_tid.delete(); active_output_transaction=null;
+            completed_tid_order.delete();
             checked_vectors=0; busy_commit_count=0; saturated_output_count=0;
             accepted_id_count=0; completed_id_count=0;
             duplicate_accept_count=0; unknown_output_count=0;
@@ -379,14 +400,16 @@ package precoder_uvm_pkg;
         endfunction
         function void reset_runtime_state();
             integer bank, row, col, tid_index;
-            input_index=0; output_index=0; vector_active=0;
+            input_index=0; vector_active=0;
             active_bank=0; active_version=0; active_mode_8x8=0;
             active_format_12=0; active_truncate=0; active_wrap=0;
             transaction_tid=0; transaction_mode_8x8=0;
             transaction_format_12=0; transaction_truncate=0;
             transaction_wrap=0; pending=0; pending_bank=0;
-            pending_version=0; error_energy=0.0; reference_energy=0.0;
+            pending_version=0;
             last_evm=0.0;
+            expected_by_tid.delete(); active_output_transaction=null;
+            completed_tid_order.delete();
             last_completed_tid=0; last_completed_tid_valid=0;
             for (tid_index=0; tid_index<256; tid_index=tid_index+1)
                 outstanding_tid[tid_index]=0;
@@ -428,15 +451,20 @@ package precoder_uvm_pkg;
             end
             return rounded;
         endfunction
-        function void calculate_expected();
+        function precoder_expected_transaction make_expected_transaction();
             integer row, col, dimension;
             longint signed acc_real, acc_imag;
             bit sat_real, sat_imag;
             real scale;
-            dimension = transaction_mode_8x8 ? 8 : 4;
-            scale = transaction_format_12 ? 1024.0 : 16384.0;
+            precoder_expected_transaction exp;
+            exp=precoder_expected_transaction::type_id::create($sformatf("expected_tid_%0d",transaction_tid));
+            exp.tid=transaction_tid; exp.mode_8x8=transaction_mode_8x8;
+            exp.format_12=transaction_format_12; exp.truncate_mode=transaction_truncate;
+            exp.wrap_mode=transaction_wrap; exp.bank=transaction_bank;
+            exp.version=transaction_version; exp.dimension=transaction_mode_8x8 ? 8 : 4;
+            dimension=exp.dimension; scale=transaction_format_12 ? 1024.0 : 16384.0;
             for (row=0; row<dimension; row=row+1) begin
-                acc_real=0; acc_imag=0; floating_real[row]=0.0; floating_imag[row]=0.0;
+                acc_real=0; acc_imag=0; exp.floating_real[row]=0.0; exp.floating_imag[row]=0.0;
                 for (col=0; col<dimension; col=col+1) begin
                     acc_real += $signed(matrix_real[transaction_bank][row][col])
                               * $signed(vector_real[col])
@@ -446,23 +474,24 @@ package precoder_uvm_pkg;
                               * $signed(vector_imag[col])
                               + $signed(matrix_imag[transaction_bank][row][col])
                               * $signed(vector_real[col]);
-                    floating_real[row] +=
+                    exp.floating_real[row] +=
                         (matrix_real[transaction_bank][row][col] / scale)
                         * (vector_real[col] / scale)
                         - (matrix_imag[transaction_bank][row][col] / scale)
                         * (vector_imag[col] / scale);
-                    floating_imag[row] +=
+                    exp.floating_imag[row] +=
                         (matrix_real[transaction_bank][row][col] / scale)
                         * (vector_imag[col] / scale)
                         + (matrix_imag[transaction_bank][row][col] / scale)
                         * (vector_real[col] / scale);
                 end
-                expected_real[row]=round_output(acc_real,transaction_format_12,
-                                                transaction_truncate,transaction_wrap,sat_real);
-                expected_imag[row]=round_output(acc_imag,transaction_format_12,
-                                                transaction_truncate,transaction_wrap,sat_imag);
-                expected_saturated[row]=sat_real || sat_imag;
+                exp.expected_real[row]=round_output(acc_real,transaction_format_12,
+                                                    transaction_truncate,transaction_wrap,sat_real);
+                exp.expected_imag[row]=round_output(acc_imag,transaction_format_12,
+                                                    transaction_truncate,transaction_wrap,sat_imag);
+                exp.expected_saturated[row]=sat_real || sat_imag;
             end
+            return exp;
         endfunction
         function void write_lite(axi_lite_item tr);
             int index, row, col, reset_bank, reset_row, reset_col;
@@ -519,22 +548,30 @@ package precoder_uvm_pkg;
                     transaction_truncate=active_truncate;
                     transaction_wrap=active_wrap;
                     transaction_tid=tr.tid;
+                    transaction_bank=active_bank;
+                    transaction_version=active_version;
                 end
             if (input_index == (active_mode_8x8 ? 7 : 3)) begin
-                transaction_bank=active_bank; transaction_version=active_version;
                 if (outstanding_tid[tr.tid]) begin
                     duplicate_accept_count++;
                     `uvm_error("TID_DUP_ACCEPT",$sformatf("transaction TID %0d accepted while still outstanding",tr.tid));
                 end else begin
                     outstanding_tid[tr.tid]=1;
                     accepted_id_count++;
+                    expected_by_tid[tr.tid]=make_expected_transaction();
                 end
-                vector_active=1; calculate_expected(); input_index=0;
+                vector_active=1; input_index=0;
             end else input_index++;
         endfunction
         function void write_output(axi_stream_out_item tr);
             real exp_real, exp_imag, got_real, got_imag, vector_evm;
-            if (!outstanding_tid[tr.tid]) begin
+            if (active_output_transaction == null) begin
+                if (expected_by_tid.exists(tr.tid)) begin
+                    active_output_transaction=expected_by_tid[tr.tid];
+                    active_output_transaction.output_index=0;
+                    active_output_transaction.error_energy=0.0;
+                    active_output_transaction.reference_energy=0.0;
+                end else if (!outstanding_tid[tr.tid]) begin
                 if (last_completed_tid_valid && (tr.tid === last_completed_tid)) begin
                     duplicate_completion_count++;
                     `uvm_error("TID_DUP_COMPLETE",$sformatf("duplicate completion observed for TID %0d",tr.tid));
@@ -542,47 +579,51 @@ package precoder_uvm_pkg;
                     unknown_output_count++;
                     `uvm_error("TID_UNKNOWN_OUTPUT",$sformatf("output observed for unknown TID %0d",tr.tid));
                 end
+                end
             end
-            if (!vector_active) begin
+            if (active_output_transaction == null) begin
                 `uvm_error("REF_ORDER","output arrived before complete input vector"); return;
             end
-            if (tr.antenna !== output_index[2:0])
-                `uvm_error("REF_ANTENNA",$sformatf("expected antenna %0d got %0d",output_index,tr.antenna));
-            if (tr.last !== (output_index == (transaction_mode_8x8 ? 7 : 3)))
-                `uvm_error("REF_LAST",$sformatf("bad TLAST on output %0d",output_index));
-            if (tr.real_part !== expected_real[output_index][15:0]
-                    || tr.imag_part !== expected_imag[output_index][15:0])
-                `uvm_error("REF_FIXED",$sformatf("antenna %0d expected %0d+%0dj got %0d+%0dj",output_index,expected_real[output_index],expected_imag[output_index],tr.real_part,tr.imag_part));
-            if (tr.version !== transaction_version)
-                `uvm_error("REF_VERSION",$sformatf("expected matrix version %0d got %0d",transaction_version,tr.version));
-            if (tr.tid !== transaction_tid)
-                begin
-                    tid_mismatch_count++;
-                    `uvm_error("REF_TID",$sformatf("expected transaction TID %0d got %0d",transaction_tid,tr.tid));
-                end
-            if (tr.saturated !== expected_saturated[output_index])
-                `uvm_error("REF_SAT",$sformatf("antenna %0d expected saturation %0d got %0d",output_index,expected_saturated[output_index],tr.saturated));
+            if (tr.tid !== active_output_transaction.tid) begin
+                tid_mismatch_count++;
+                `uvm_error("REF_TID",$sformatf("output packet interleaved: active TID %0d got %0d",active_output_transaction.tid,tr.tid));
+                return;
+            end
+            if (tr.antenna !== active_output_transaction.output_index[2:0])
+                `uvm_error("REF_ANTENNA",$sformatf("expected antenna %0d got %0d",active_output_transaction.output_index,tr.antenna));
+            if (tr.last !== (active_output_transaction.output_index == active_output_transaction.dimension-1))
+                `uvm_error("REF_LAST",$sformatf("bad TLAST on output %0d",active_output_transaction.output_index));
+            if (tr.real_part !== active_output_transaction.expected_real[active_output_transaction.output_index][15:0]
+                    || tr.imag_part !== active_output_transaction.expected_imag[active_output_transaction.output_index][15:0])
+                `uvm_error("REF_FIXED",$sformatf("TID %0d antenna %0d expected %0d+%0dj got %0d+%0dj",tr.tid,active_output_transaction.output_index,active_output_transaction.expected_real[active_output_transaction.output_index],active_output_transaction.expected_imag[active_output_transaction.output_index],tr.real_part,tr.imag_part));
+            if (tr.version !== active_output_transaction.version)
+                `uvm_error("REF_VERSION",$sformatf("expected matrix version %0d got %0d",active_output_transaction.version,tr.version));
+            if (tr.saturated !== active_output_transaction.expected_saturated[active_output_transaction.output_index])
+                `uvm_error("REF_SAT",$sformatf("antenna %0d expected saturation %0d got %0d",active_output_transaction.output_index,active_output_transaction.expected_saturated[active_output_transaction.output_index],tr.saturated));
             if (tr.saturated) saturated_output_count++;
-            exp_real = floating_real[output_index];
-            exp_imag = floating_imag[output_index];
-            got_real = tr.real_part / (transaction_format_12 ? 1024.0 : 16384.0);
-            got_imag = tr.imag_part / (transaction_format_12 ? 1024.0 : 16384.0);
-            error_energy += (got_real-exp_real)*(got_real-exp_real) + (got_imag-exp_imag)*(got_imag-exp_imag);
-            reference_energy += exp_real*exp_real + exp_imag*exp_imag;
-            output_index++;
-            if (output_index == (transaction_mode_8x8 ? 8 : 4)) begin
+            exp_real = active_output_transaction.floating_real[active_output_transaction.output_index];
+            exp_imag = active_output_transaction.floating_imag[active_output_transaction.output_index];
+            got_real = tr.real_part / (active_output_transaction.format_12 ? 1024.0 : 16384.0);
+            got_imag = tr.imag_part / (active_output_transaction.format_12 ? 1024.0 : 16384.0);
+            active_output_transaction.error_energy += (got_real-exp_real)*(got_real-exp_real) + (got_imag-exp_imag)*(got_imag-exp_imag);
+            active_output_transaction.reference_energy += exp_real*exp_real + exp_imag*exp_imag;
+            active_output_transaction.output_index++;
+            if (active_output_transaction.output_index == active_output_transaction.dimension) begin
                 checked_vectors++;
-                vector_evm=(reference_energy==0.0)?0.0:$sqrt(error_energy/reference_energy);
+                vector_evm=(active_output_transaction.reference_energy==0.0)?0.0:$sqrt(active_output_transaction.error_energy/active_output_transaction.reference_energy);
                 last_evm=vector_evm;
                 if (vector_evm > max_evm) max_evm=vector_evm;
                 `uvm_info("REF_EVM",$sformatf("vector %0d fixed reference PASS, EVM=%0.6e",checked_vectors,vector_evm),UVM_LOW);
-                output_index=0; vector_active=0; error_energy=0.0; reference_energy=0.0;
-                if (outstanding_tid[transaction_tid]) begin
-                    outstanding_tid[transaction_tid]=0;
+                if (outstanding_tid[active_output_transaction.tid]) begin
+                    outstanding_tid[active_output_transaction.tid]=0;
                     completed_id_count++;
-                    last_completed_tid=transaction_tid;
+                    last_completed_tid=active_output_transaction.tid;
                     last_completed_tid_valid=1;
+                    completed_tid_order.push_back(active_output_transaction.tid);
                 end
+                expected_by_tid.delete(active_output_transaction.tid);
+                active_output_transaction=null;
+                vector_active=(expected_by_tid.num() != 0);
                 if (pending) begin
                     active_bank=pending_bank; active_version=pending_version; pending=0;
                 end
@@ -704,7 +745,7 @@ package precoder_uvm_pkg;
                                 end else begin
                                     predicted_latency=predicted_base_cycles.pop_front()+active_output_stalls;
                                 end
-                                if (latency != predicted_latency) begin
+                                if (!vif.reorder_enable && (latency != predicted_latency)) begin
                                     latency_mismatch_count++;
                                     `uvm_error("PERF_LATENCY",$sformatf("predicted %0d cycles got %0d",predicted_latency,latency))
                                 end
@@ -1390,6 +1431,104 @@ package precoder_uvm_pkg;
                 if (env.scoreboard.outstanding_tid[i])
                     `uvm_fatal("TID_TRACK_LEAK",$sformatf("TID %0d remains outstanding",i));
             `uvm_info("PHASE18",$sformatf("ID scoreboard accepted=%0d completed=%0d; no duplicate, unknown, or leaked IDs",env.scoreboard.accepted_id_count,env.scoreboard.completed_id_count),UVM_LOW);
+            phase.drop_objection(this);
+        endtask
+    endclass
+
+    class precoder_out_of_order_test extends uvm_test;
+        `uvm_component_utils(precoder_out_of_order_test)
+        precoder_env env;
+        function new(string name, uvm_component parent); super.new(name,parent); endfunction
+        function void build_phase(uvm_phase phase);
+            super.build_phase(phase);
+            uvm_config_db#(int)::set(this,"env.stream_in_agent.driver","gap_max",0);
+            uvm_config_db#(int)::set(this,"env.stream_out_agent.driver","stall_percent",45);
+            uvm_config_db#(int)::set(this,"env.stream_out_agent.driver","stall_burst_cycles",2);
+            uvm_config_db#(int)::set(this,"env.lite_agent.driver","response_stall_max",1);
+            env=precoder_env::type_id::create("env",this);
+        endfunction
+        task run_phase(uvm_phase phase);
+            programmable_matrix_sequence cfg;
+            programmable_vector_sequence high_tid_vector, low_tid_vector;
+            axi_lite_write_sequence reorder_write, busy_quant;
+            axi_lite_read_sequence reorder_read, input_count_read, output_count_read;
+            integer i, timeout;
+            phase.raise_objection(this);
+            wait(env.lite_agent.vif.aresetn); repeat(2) @(posedge env.lite_agent.vif.aclk);
+
+            cfg=programmable_matrix_sequence::type_id::create("ooo_matrix");
+            cfg.bank=0; cfg.mode_8x8=0;
+            for (i=0;i<16;i=i+1) begin
+                cfg.coeff_real[i]=(i/4==i%4)?16'sh4000:0;
+                cfg.coeff_imag[i]=0;
+            end
+            cfg.start(env.lite_agent.sequencer);
+
+            reorder_write=axi_lite_write_sequence::type_id::create("enable_reorder");
+            reorder_write.addr=32'h4c; reorder_write.data=32'h1;
+            reorder_write.strb=4'hf; reorder_write.w_first=0;
+            reorder_write.start(env.lite_agent.sequencer);
+            if (reorder_write.response != 2'b00)
+                `uvm_fatal("OOO_CTRL",$sformatf("enable response %b",reorder_write.response));
+
+            reorder_read=axi_lite_read_sequence::type_id::create("read_reorder_enabled");
+            reorder_read.addr=32'h4c; reorder_read.start(env.lite_agent.sequencer);
+            if ((reorder_read.response != 2'b00) || (reorder_read.read_data[0] != 1'b1))
+                `uvm_fatal("OOO_CTRL",$sformatf("read response=%b data=%h",reorder_read.response,reorder_read.read_data));
+
+            high_tid_vector=programmable_vector_sequence::type_id::create("first_high_tid");
+            high_tid_vector.mode_8x8=0; high_tid_vector.tid=8'hb0;
+            low_tid_vector=programmable_vector_sequence::type_id::create("second_low_tid");
+            low_tid_vector.mode_8x8=0; low_tid_vector.tid=8'h20;
+            for (i=0;i<4;i=i+1) begin
+                high_tid_vector.sample_real[i]=(i+1)*913;
+                high_tid_vector.sample_imag[i]=-(i+1)*127;
+                low_tid_vector.sample_real[i]=-(i+1)*601;
+                low_tid_vector.sample_imag[i]=(i+1)*211;
+            end
+            high_tid_vector.start(env.stream_in_agent.sequencer);
+            low_tid_vector.start(env.stream_in_agent.sequencer);
+
+            busy_quant=axi_lite_write_sequence::type_id::create("busy_ooo_quant");
+            busy_quant.addr=32'h48; busy_quant.data=32'h1;
+            busy_quant.strb=4'hf; busy_quant.w_first=1;
+            busy_quant.start(env.lite_agent.sequencer);
+            if (busy_quant.response != 2'b10)
+                `uvm_fatal("OOO_CFG_FREEZE",$sformatf("expected SLVERR while transactions buffered, got %b",busy_quant.response));
+
+            timeout=0;
+            while ((env.scoreboard.checked_vectors < 2) && (timeout < 5000)) begin
+                @(posedge env.lite_agent.vif.aclk); timeout++;
+            end
+            if (env.scoreboard.checked_vectors != 2)
+                `uvm_fatal("OOO_TIMEOUT",$sformatf("expected 2 vectors got %0d",env.scoreboard.checked_vectors));
+            if ((env.scoreboard.completed_tid_order.size() != 2)
+                    || (env.scoreboard.completed_tid_order[0] != 8'h20)
+                    || (env.scoreboard.completed_tid_order[1] != 8'hb0))
+                `uvm_fatal("OOO_ORDER",$sformatf("completion order size=%0d first=%0h second=%0h",env.scoreboard.completed_tid_order.size(),env.scoreboard.completed_tid_order.size()>0?env.scoreboard.completed_tid_order[0]:0,env.scoreboard.completed_tid_order.size()>1?env.scoreboard.completed_tid_order[1]:0));
+            if ((env.scoreboard.accepted_id_count != 2)
+                    || (env.scoreboard.completed_id_count != 2)
+                    || (env.scoreboard.duplicate_accept_count != 0)
+                    || (env.scoreboard.unknown_output_count != 0)
+                    || (env.scoreboard.duplicate_completion_count != 0)
+                    || (env.scoreboard.tid_mismatch_count != 0))
+                `uvm_fatal("OOO_TRACK",$sformatf("accepted=%0d completed=%0d duplicate_accept=%0d unknown=%0d duplicate_completion=%0d mismatch=%0d",env.scoreboard.accepted_id_count,env.scoreboard.completed_id_count,env.scoreboard.duplicate_accept_count,env.scoreboard.unknown_output_count,env.scoreboard.duplicate_completion_count,env.scoreboard.tid_mismatch_count));
+            for (i=0;i<256;i=i+1)
+                if (env.scoreboard.outstanding_tid[i])
+                    `uvm_fatal("OOO_LEAK",$sformatf("TID %0d remains outstanding",i));
+
+            input_count_read=axi_lite_read_sequence::type_id::create("read_ooo_input_count");
+            input_count_read.addr=32'h24; input_count_read.start(env.lite_agent.sequencer);
+            output_count_read=axi_lite_read_sequence::type_id::create("read_ooo_output_count");
+            output_count_read.addr=32'h28; output_count_read.start(env.lite_agent.sequencer);
+            reorder_read=axi_lite_read_sequence::type_id::create("read_reorder_idle");
+            reorder_read.addr=32'h4c; reorder_read.start(env.lite_agent.sequencer);
+            if ((input_count_read.response != 2'b00) || (input_count_read.read_data != 2)
+                    || (output_count_read.response != 2'b00) || (output_count_read.read_data != 2))
+                `uvm_fatal("OOO_COUNTER",$sformatf("input=%0d/%b output=%0d/%b",input_count_read.read_data,input_count_read.response,output_count_read.read_data,output_count_read.response));
+            if ((reorder_read.response != 2'b00) || (reorder_read.read_data != 32'h1))
+                `uvm_fatal("OOO_DRAIN",$sformatf("expected enabled idle empty state, got %h/%b",reorder_read.read_data,reorder_read.response));
+            `uvm_info("PHASE19",$sformatf("out-of-order completion checked: accepted=2 completed=2 order=%02h->%02h",env.scoreboard.completed_tid_order[0],env.scoreboard.completed_tid_order[1]),UVM_LOW);
             phase.drop_objection(this);
         endtask
     endclass

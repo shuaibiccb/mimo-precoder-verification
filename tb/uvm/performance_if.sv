@@ -11,6 +11,7 @@ interface performance_if(input logic aclk, input logic aresetn);
     logic commit;
     logic mode_8x8;
     logic format_12;
+    logic reorder_enable;
 
     logic [31:0] cycle_count;
     logic [31:0] input_vector_count;

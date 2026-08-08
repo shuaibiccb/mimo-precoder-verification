@@ -36,6 +36,7 @@ module axi_lite_regs (
     output logic        format_change_o,
     output logic        truncate_o,
     output logic        wrap_o,
+    output logic        reorder_enable_o,
 
     output logic        commit_valid_o,
     input  logic        commit_ready_i,
@@ -43,6 +44,8 @@ module axi_lite_regs (
     output logic [7:0]  commit_version_o,
 
     input  logic        busy_i,
+    input  logic        reorder_busy_i,
+    input  logic [1:0]  reorder_occupancy_i,
     input  logic        matrix_complete_i,
     input  logic [1:0]  bank_complete_i,
     input  logic        commit_pending_i,
@@ -90,6 +93,8 @@ module axi_lite_regs (
     logic        quant_write;
     logic        quant_write_truncate;
     logic        quant_write_wrap;
+    logic        reorder_write;
+    logic        reorder_write_value;
     logic        clear_errors;
     logic [7:0]  error_w1c_mask;
 
@@ -147,6 +152,8 @@ module axi_lite_regs (
         quant_write = 1'b0;
         quant_write_truncate = truncate_o;
         quant_write_wrap = wrap_o;
+        reorder_write = 1'b0;
+        reorder_write_value = reorder_enable_o;
 
         if (write_execute) begin
             if (awaddr_stored[1:0] != 2'b00) begin
@@ -161,6 +168,7 @@ module axi_lite_regs (
                                                   ? 32'h0000_02fc
                                                   : 32'h0000_023c)))) begin
                 if ((wstrb_stored != 4'b1111) || !cfg_ready_i
+                        || reorder_busy_i
                         || (format_12_o
                             && ((write_data_masked[31:28] != {4{write_data_masked[27]}})
                              || (write_data_masked[15:12] != {4{write_data_masked[11]}})))) begin
@@ -182,7 +190,7 @@ module axi_lite_regs (
                         if (write_data_masked[31]) begin
                             if ((write_data_masked[30:16] != 15'd0)
                                     || (write_data_masked[7:1] != 7'd0)
-                                    || !commit_ready_i) begin
+                                    || !commit_ready_i || reorder_busy_i) begin
                                 write_response = AXI_SLVERR;
                                 illegal_commit = 1'b1;
                             end else begin
@@ -233,6 +241,19 @@ module axi_lite_regs (
                             quant_write_wrap = write_data_masked[1];
                         end
                     end
+                    32'h0000_004c: begin
+                        if ((wstrb_stored != 4'b1111)
+                                || (write_data_masked[31:1] != 31'd0)
+                                || busy_i || commit_pending_i) begin
+                            write_response = AXI_SLVERR;
+                            illegal_matrix_write = 1'b1;
+                            if (wstrb_stored != 4'b1111)
+                                write_align_error = 1'b1;
+                        end else begin
+                            reorder_write = 1'b1;
+                            reorder_write_value = write_data_masked[0];
+                        end
+                    end
                     default: begin
                         write_response = AXI_SLVERR;
                         write_decode_error = 1'b1;
@@ -274,6 +295,10 @@ module axi_lite_regs (
                 32'h0000_0040: read_data_next = {31'd0,mode_8x8_o};
                 32'h0000_0044: read_data_next = {31'd0,format_12_o};
                 32'h0000_0048: read_data_next = {30'd0,wrap_o,truncate_o};
+                32'h0000_004c: read_data_next = {
+                    28'd0, reorder_occupancy_i, reorder_busy_i,
+                    reorder_enable_o
+                };
                 default: begin
                     read_response_next = AXI_SLVERR;
                     read_decode_error = 1'b1;
@@ -314,6 +339,7 @@ module axi_lite_regs (
             format_12_o <= 1'b0;
             truncate_o <= 1'b0;
             wrap_o <= 1'b0;
+            reorder_enable_o <= 1'b0;
         end else begin
             core_protocol_error_q <= core_protocol_error_i;
             if (mode_write)
@@ -324,6 +350,8 @@ module axi_lite_regs (
                 truncate_o <= quant_write_truncate;
                 wrap_o <= quant_write_wrap;
             end
+            if (reorder_write)
+                reorder_enable_o <= reorder_write_value;
             if (s_axil_awvalid && s_axil_awready) begin
                 aw_stored <= 1'b1;
                 awaddr_stored <= s_axil_awaddr;

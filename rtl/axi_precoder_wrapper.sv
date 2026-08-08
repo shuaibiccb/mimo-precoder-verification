@@ -48,6 +48,7 @@ module axi_precoder_wrapper #(
     logic format_change;
     logic truncate_mode;
     logic wrap_mode;
+    logic reorder_enable;
     logic signed [DATA_WIDTH-1:0] cfg_real, cfg_imag;
     logic [1:0] bank_complete;
     logic matrix_complete;
@@ -55,14 +56,20 @@ module axi_precoder_wrapper #(
     logic [VERSION_WIDTH-1:0] commit_version;
     logic commit_pending, active_bank;
     logic [VERSION_WIDTH-1:0] active_version;
-    logic in_valid, in_ready, in_last;
-    logic signed [DATA_WIDTH-1:0] in_real, in_imag;
+    logic stream_valid, stream_ready, stream_last;
+    logic signed [DATA_WIDTH-1:0] stream_real, stream_imag;
+    logic core_in_valid, core_in_ready, core_in_last;
+    logic signed [DATA_WIDTH-1:0] core_in_real, core_in_imag;
+    logic [7:0] reordered_tid;
     logic out_valid, out_ready, out_last, out_saturated;
     logic signed [DATA_WIDTH-1:0] out_real, out_imag;
     logic [2:0] out_ant_idx;
     logic [VERSION_WIDTH-1:0] out_version;
-    logic [7:0] transaction_tid;
-    logic busy, protocol_error;
+    logic [7:0] input_tid_unused;
+    logic [7:0] core_transaction_tid;
+    logic core_busy, combined_busy, protocol_error;
+    logic reorder_busy, reordered_pulse;
+    logic [1:0] reorder_occupancy;
     logic input_vector_pulse, early_tlast_pulse, missing_tlast_pulse;
     logic invalid_tkeep_pulse, output_vector_pulse, saturation_pulse;
     logic clear_counters, cfg_write_pulse, commit_pulse;
@@ -77,21 +84,46 @@ module axi_precoder_wrapper #(
         .s_axis_tdata(s_axis_tdata), .s_axis_tkeep(s_axis_tkeep),
         .s_axis_tid(s_axis_tid),
         .s_axis_tvalid(s_axis_tvalid), .s_axis_tready(s_axis_tready),
-        .s_axis_tlast(s_axis_tlast), .core_valid_o(in_valid),
-        .core_ready_i(in_ready), .core_real_o(in_real), .core_imag_o(in_imag),
-        .core_last_o(in_last), .core_tid_o(transaction_tid),
+        .s_axis_tlast(s_axis_tlast), .core_valid_o(stream_valid),
+        .core_ready_i(stream_ready), .core_real_o(stream_real),
+        .core_imag_o(stream_imag), .core_last_o(stream_last),
+        .core_tid_o(input_tid_unused),
         .input_vector_pulse_o(input_vector_pulse),
         .early_tlast_pulse_o(early_tlast_pulse),
         .missing_tlast_pulse_o(missing_tlast_pulse),
         .invalid_tkeep_pulse_o(invalid_tkeep_pulse)
     );
 
+    axi_stream_reorder_buffer #(
+        .DATA_WIDTH(DATA_WIDTH), .REORDER_WAIT_CYCLES(32)
+    ) u_stream_reorder_buffer (
+        .aclk(aclk), .aresetn(aresetn), .enable_i(reorder_enable),
+        .mode_8x8_i(mode_8x8),
+        .s_valid_i(stream_valid), .s_ready_o(stream_ready),
+        .s_real_i(stream_real), .s_imag_i(stream_imag),
+        .s_last_i(stream_last), .s_tid_i(s_axis_tid),
+        .m_valid_o(core_in_valid), .m_ready_i(core_in_ready),
+        .m_real_o(core_in_real), .m_imag_o(core_in_imag),
+        .m_last_o(core_in_last), .m_tid_o(reordered_tid),
+        .busy_o(reorder_busy), .occupancy_o(reorder_occupancy),
+        .reordered_pulse_o(reordered_pulse)
+    );
+
+    always_ff @(posedge aclk or negedge aresetn) begin
+        if (!aresetn)
+            core_transaction_tid <= 8'd0;
+        else if (core_in_valid && core_in_ready && !core_busy)
+            core_transaction_tid <= reordered_tid;
+    end
+
+    assign combined_busy = core_busy || reorder_busy;
+
     axi_stream_output u_stream_output (
         .core_valid_i(out_valid), .core_ready_o(out_ready),
         .core_real_i(out_real), .core_imag_i(out_imag),
         .core_ant_idx_i(out_ant_idx), .core_last_i(out_last),
         .core_saturated_i(out_saturated), .core_version_i(out_version),
-        .core_tid_i(transaction_tid),
+        .core_tid_i(core_transaction_tid),
         .m_axis_tdata(m_axis_tdata), .m_axis_tkeep(m_axis_tkeep),
         .m_axis_tvalid(m_axis_tvalid), .m_axis_tready(m_axis_tready),
         .m_axis_tlast(m_axis_tlast), .m_axis_tuser(m_axis_tuser),
@@ -116,9 +148,12 @@ module axi_precoder_wrapper #(
         .mode_8x8_o(mode_8x8),
         .format_12_o(format_12), .format_change_o(format_change),
         .truncate_o(truncate_mode), .wrap_o(wrap_mode),
+        .reorder_enable_o(reorder_enable),
         .commit_valid_o(commit_valid), .commit_ready_i(commit_ready),
         .commit_bank_o(commit_bank), .commit_version_o(commit_version),
-        .busy_i(busy), .matrix_complete_i(matrix_complete),
+        .busy_i(combined_busy), .reorder_busy_i(reorder_busy),
+        .reorder_occupancy_i(reorder_occupancy),
+        .matrix_complete_i(matrix_complete),
         .bank_complete_i(bank_complete), .commit_pending_i(commit_pending),
         .active_bank_i(active_bank), .active_version_i(active_version),
         .core_protocol_error_i(protocol_error),
@@ -165,12 +200,13 @@ module axi_precoder_wrapper #(
         .commit_ready_o(commit_ready), .commit_bank_i(commit_bank),
         .commit_version_i(commit_version), .commit_pending_o(commit_pending),
         .active_bank_o(active_bank), .active_version_o(active_version),
-        .in_valid_i(in_valid), .in_ready_o(in_ready), .in_real_i(in_real),
-        .in_imag_i(in_imag), .in_last_i(in_last), .out_valid_o(out_valid),
+        .in_valid_i(core_in_valid), .in_ready_o(core_in_ready),
+        .in_real_i(core_in_real), .in_imag_i(core_in_imag),
+        .in_last_i(core_in_last), .out_valid_o(out_valid),
         .out_ready_i(out_ready), .out_real_o(out_real), .out_imag_o(out_imag),
         .out_ant_idx_o(out_ant_idx), .out_last_o(out_last),
         .out_saturated_o(out_saturated), .out_version_o(out_version),
-        .busy_o(busy), .protocol_error_o(protocol_error)
+        .busy_o(core_busy), .protocol_error_o(protocol_error)
     );
 
 endmodule

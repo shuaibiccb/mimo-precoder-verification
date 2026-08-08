@@ -23,7 +23,8 @@ set rtl_files [list \
     [file join $root_dir rtl fixed_round_sat.sv] \
     [file join $root_dir rtl matrix_storage.sv] \
     [file join $root_dir rtl symbol_buffer.sv] \
-    [file join $root_dir rtl precoder_core.sv]]
+    [file join $root_dir rtl precoder_core.sv] \
+    [file join $root_dir rtl axi_stream_reorder_buffer.sv]]
 
 analyze -format sverilog $rtl_files
 elaborate precoder_core

@@ -27,6 +27,7 @@ if [[ "${SKIP_COMPILE:-0}" != "1" ]]; then
     rtl/symbol_buffer.sv \
     rtl/precoder_core.sv \
     rtl/axi_stream_input.sv \
+    rtl/axi_stream_reorder_buffer.sv \
     rtl/axi_stream_output.sv \
     rtl/performance_counters.sv \
     rtl/axi_lite_regs.sv \
@@ -106,6 +107,11 @@ case "$uvm_test" in
     grep -q "\[PHASE18\].*accepted=4.*completed=4" "$run_log"
     grep -q "\[PHASE9_SVA_AXI\].*input_beats=16 output_beats=16" "$run_log"
     grep -q "\[PHASE9_SVA_CORE\].*accepted=4 completed=4" "$run_log"
+    ;;
+  precoder_out_of_order_test)
+    grep -q "\[PHASE19\].*accepted=2 completed=2 order=20->b0" "$run_log"
+    grep -q "\[PHASE9_SVA_AXI\].*input_beats=8 output_beats=8" "$run_log"
+    grep -q "\[PHASE9_SVA_CORE\].*accepted=2 completed=2" "$run_log"
     ;;
   *)
     echo "ERROR: run_uvm.sh has no completion check for $uvm_test" >&2

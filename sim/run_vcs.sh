@@ -142,6 +142,7 @@ run_test axi_precoder_wrapper tb/axi/tb_axi_precoder_wrapper.sv \
   rtl/symbol_buffer.sv \
   rtl/precoder_core.sv \
   rtl/axi_stream_input.sv \
+  rtl/axi_stream_reorder_buffer.sv \
   rtl/axi_stream_output.sv \
   rtl/performance_counters.sv \
   rtl/axi_lite_regs.sv \
@@ -156,6 +157,7 @@ run_test axi_precoder_8x8 tb/axi/tb_axi_precoder_8x8.sv \
   rtl/symbol_buffer.sv \
   rtl/precoder_core.sv \
   rtl/axi_stream_input.sv \
+  rtl/axi_stream_reorder_buffer.sv \
   rtl/axi_stream_output.sv \
   rtl/performance_counters.sv \
   rtl/axi_lite_regs.sv \
@@ -170,6 +172,7 @@ run_test axi_precoder_stress tb/axi/tb_axi_precoder_stress.sv \
   rtl/symbol_buffer.sv \
   rtl/precoder_core.sv \
   rtl/axi_stream_input.sv \
+  rtl/axi_stream_reorder_buffer.sv \
   rtl/axi_stream_output.sv \
   rtl/performance_counters.sv \
   rtl/axi_lite_regs.sv \
