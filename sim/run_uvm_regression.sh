@@ -11,7 +11,8 @@ mkdir -p build/vcs/uvm/regression
 rm -rf build/vcs/uvm/regression/sva_report build/vcs/uvm/regression/seed_*.vdb \
   build/vcs/uvm/regression/precoder_8x8.vdb \
   build/vcs/uvm/regression/precoder_12bit.vdb \
-  build/vcs/uvm/regression/precoder_quantization.vdb
+  build/vcs/uvm/regression/precoder_quantization.vdb \
+  build/vcs/uvm/regression/precoder_tid.vdb
 
 for ((run=0; run<runs; run++)); do
   seed=$((base_seed + run))
