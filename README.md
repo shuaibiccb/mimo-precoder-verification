@@ -232,3 +232,9 @@ backward compatibility. Software writes AXI4-Lite `MODE` at `0x040` to select
 8x8; each bank then accepts 64 Q1.14 coefficients and each stream transaction
 contains eight beats. See `docs/stage13_4x4_8x8_mode.md` and
 `tb/axi/tb_axi_precoder_8x8.sv` for the interface contract and end-to-end test.
+
+Stage 15 adds runtime-selectable Q1.14 and Q1.10 operation through the
+AXI4-Lite `FORMAT` register at `0x044`. Reset remains Q1.14. A format change is
+allowed only while idle, invalidates both matrix banks, and requires a fresh
+matrix load. The UVM 8x8 Q1.10 test passed with zero errors and zero fatals;
+details are in `docs/stage15_12bit_format.md`.
