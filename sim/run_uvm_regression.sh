@@ -32,7 +32,7 @@ UVM_TEST=precoder_8x8_test VECTORS=2 SEED=$((base_seed + runs)) \
   bash sim/run_uvm.sh
 
 echo "UVM runtime quantization test"
-UVM_TEST=precoder_quantization_test VECTORS=3 SEED=$((base_seed + runs + 2)) \
+UVM_TEST=precoder_quantization_test VECTORS=4 SEED=$((base_seed + runs + 2)) \
   SVA_COVERAGE=1 SVA_VDB="build/vcs/uvm/regression/precoder_quantization.vdb" \
   RUN_LOG="build/vcs/uvm/regression/precoder_quantization.log" SKIP_COMPILE=1 \
   bash sim/run_uvm.sh

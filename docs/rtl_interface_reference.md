@@ -24,6 +24,9 @@
 | 接口名 | 方向 | 位宽 | 说明 |
 |---|---|---:|---|
 | mode_8x8 | 内部 | 1 | AXI-Lite `MODE`寄存器镜像；0=4x4，1=8x8 |
+| format_12 | 内部 | 1 | AXI-Lite `FORMAT`寄存器镜像；0=Q1.14，1=Q1.10 |
+| truncate_mode | 内部 | 1 | AXI-Lite `QUANT_CTRL` bit0；1=直接截断，0=最近值舍入 |
+| wrap_mode | 内部 | 1 | AXI-Lite `QUANT_CTRL` bit1；1=回绕，0=饱和 |
 
 ### AXI4-Stream输入
 

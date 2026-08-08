@@ -1197,10 +1197,15 @@ package precoder_uvm_pkg;
             wait_for_vector(1);
             if (env.scoreboard.saturated_output_count != 4)
                 `uvm_fatal("QUANT_SAT",$sformatf("expected four saturated outputs got %0d",env.scoreboard.saturated_output_count));
-            write_quant(1'b0,1'b1);
+            write_quant(1'b1,1'b0);
             send_full_scale_vector();
             wait_for_vector(2);
-            if (env.scoreboard.saturated_output_count != 4)
+            if (env.scoreboard.saturated_output_count != 8)
+                `uvm_fatal("QUANT_TRUNC_SAT",$sformatf("truncation+saturation count=%0d",env.scoreboard.saturated_output_count));
+            write_quant(1'b0,1'b1);
+            send_full_scale_vector();
+            wait_for_vector(3);
+            if (env.scoreboard.saturated_output_count != 8)
                 `uvm_fatal("QUANT_WRAP_SAT",$sformatf("wrap mode must suppress saturation, count=%0d",env.scoreboard.saturated_output_count));
             read_quant=axi_lite_read_sequence::type_id::create("read_quant");
             read_quant.addr=32'h48; read_quant.start(env.lite_agent.sequencer);
@@ -1212,7 +1217,7 @@ package precoder_uvm_pkg;
             busy_quant.w_first=0; busy_quant.start(env.lite_agent.sequencer);
             if (busy_quant.response != 2'b10)
                 `uvm_fatal("QUANT_BUSY",$sformatf("expected busy QUANT_CTRL SLVERR got %b",busy_quant.response));
-            wait_for_vector(3);
+            wait_for_vector(4);
             `uvm_info("PHASE16",$sformatf("runtime quantization checked %0d vectors; saturations=%0d",env.scoreboard.checked_vectors,env.scoreboard.saturated_output_count),UVM_LOW);
             phase.drop_objection(this);
         endtask

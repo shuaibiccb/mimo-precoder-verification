@@ -171,6 +171,8 @@ m_axis_tuser = {out_ant_idx_o[2], out_version_o, out_saturated_o,
 | `0x038` | `CFG_WRITE_COUNT` | RO | 成功写入的矩阵系数数 |
 | `0x03C` | `COMMIT_COUNT` | RO | 成功接受的commit数 |
 | `0x040` | `MODE` | RW | bit0=0选择4x4，bit0=1选择8x8；仅空闲且无pending commit时可写 |
+| `0x044` | `FORMAT` | RW | bit0=0选择16位Q1.14，bit0=1选择12位Q1.10；仅空闲且无pending commit时可写 |
+| `0x048` | `QUANT_CTRL` | RW | bit0=1直接截断，bit1=1回绕；默认00为最近值舍入+饱和；仅空闲且无pending commit时可写 |
 | `0x100`～`0x1FC` | `BANK0_MATRIX` | WO | 4x4模式前16项；8x8模式64个复数系数 |
 | `0x200`～`0x2FC` | `BANK1_MATRIX` | WO | 4x4模式前16项；8x8模式64个复数系数 |
 

@@ -94,8 +94,8 @@ case "$uvm_test" in
     ;;
   precoder_quantization_test)
     grep -q "\[PHASE16\].*runtime quantization checked" "$run_log"
-    grep -q "\[PHASE9_SVA_AXI\].*input_beats=12 output_beats=12" "$run_log"
-    grep -q "\[PHASE9_SVA_CORE\].*accepted=3 completed=3" "$run_log"
+    grep -q "\[PHASE9_SVA_AXI\].*input_beats=16 output_beats=16" "$run_log"
+    grep -q "\[PHASE9_SVA_CORE\].*accepted=4 completed=4" "$run_log"
     ;;
   *)
     echo "ERROR: run_uvm.sh has no completion check for $uvm_test" >&2

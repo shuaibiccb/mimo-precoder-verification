@@ -137,3 +137,10 @@ UVM性能monitor对周期、输入/输出向量、输入/输出阻塞、饱和�
 ## new第14阶段 8x8 UVM参考模型
 
 UVM scoreboard扩展为动态4x4/8x8矩阵、输入向量和输出向量参考模型；`precoder_8x8_test` 使用随机复数8x8 Bank，检查位精确输出、EVM、8路天线编号、`TLAST`、矩阵版本、忙时MODE写保护和Bank commit边界。UVM回归在保留所有4x4测试的同时运行该8x8用例。
+## new第16阶段 运行时量化策略
+
+新增AXI-Lite `QUANT_CTRL`寄存器（`0x048`）：bit0选择最近值舍入或直接截断，
+bit1选择饱和或低位回绕，复位默认`00`。策略只允许在空闲且没有pending commit
+时修改，并在事务开始锁存。UVM用例覆盖四种策略组合、饱和标志行为、寄存器读回
+和忙时写保护；通过标准为`UVM_ERROR=0`、`UVM_FATAL=0`且4个输入/输出向量均有
+SVA记录。详细说明见`docs/stage16_runtime_quantization.md`。
