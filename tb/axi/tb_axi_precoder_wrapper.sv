@@ -75,6 +75,26 @@ module tb_axi_precoder_wrapper;
         end
     endtask
 
+    task automatic axi_write_together(
+        input logic [31:0] address,
+        input logic [31:0] data,
+        input logic [3:0] strobes,
+        input logic [1:0] expected_response
+    );
+        begin
+            @(negedge aclk);
+            awaddr = address; awvalid = 1'b1;
+            wdata = data; wstrb = strobes; wvalid = 1'b1;
+            do @(posedge aclk); while (!(awready && wready));
+            @(negedge aclk); awvalid = 1'b0; wvalid = 1'b0;
+            do @(posedge aclk); while (!bvalid);
+            if (bresp !== expected_response)
+                $fatal(1, "AXI simultaneous write response %b, expected %b",
+                       bresp, expected_response);
+            @(negedge aclk);
+        end
+    endtask
+
     task automatic axi_read(
         input logic [31:0] address,
         input logic [1:0] expected_response,
@@ -106,6 +126,17 @@ module tb_axi_precoder_wrapper;
                     coefficient = (row == col) ? 32'h4000_0000 : 32'h0;
                     axi_write(address, coefficient, 4'hf, index[0], OKAY);
                 end
+            end
+        end
+    endtask
+
+    task automatic configure_fullscale(input logic bank);
+        integer index;
+        logic [31:0] address;
+        begin
+            for (index = 0; index < 16; index = index + 1) begin
+                address = (bank ? 32'h200 : 32'h100) + index * 4;
+                axi_write(address, 32'h7fff_7fff, 4'hf, index[0], OKAY);
             end
         end
     endtask
@@ -219,6 +250,54 @@ module tb_axi_precoder_wrapper;
         if (read_value[9:2] !== 8'h5a || !read_value[0])
             $fatal(1, "Commit did not activate Bank1/version 5a");
         axi_write(32'h010, 32'h8000_3301, 4'hf, 1'b1, SLVERR);
+
+        // Cover zero strobes and simultaneous AW/W channel arrival.
+        axi_write(32'h008, 32'hffff_ffff, 4'h0, 1'b0, OKAY);
+        axi_write_together(32'h008, 32'd0, 4'hf, OKAY);
+
+        // Prepare a saturating Bank0 and request the switch while output is
+        // stalled. The current vector must retain Bank1/version 5a.
+        configure_fullscale(1'b0);
+        send_input(16'sd1, 16'sd0, 4'hf, 1'b0);
+        send_input(16'sd2, 16'sd0, 4'hf, 1'b0);
+        send_input(16'sd3, 16'sd0, 4'hf, 1'b0);
+        send_input(16'sd4, 16'sd0, 4'hf, 1'b1);
+        m_axis_tready = 1'b0;
+        do @(posedge aclk); while (!m_axis_tvalid);
+        axi_write(32'h010, 32'h8000_a500, 4'hf, 1'b0, OKAY);
+        if (!dut.commit_pending)
+            $fatal(1, "Busy commit did not enter pending state");
+
+        // Present the next vector while the core is busy to exercise input
+        // backpressure. Keep the beat stable until it is eventually accepted.
+        @(negedge aclk);
+        s_axis_tdata = 32'h7fff_7fff;
+        s_axis_tkeep = 4'hf;
+        s_axis_tlast = 1'b0;
+        s_axis_tvalid = 1'b1;
+        repeat (3) begin
+            @(posedge aclk);
+            if (s_axis_tready)
+                $fatal(1, "Input was accepted while previous vector stalled");
+        end
+        @(negedge aclk); m_axis_tready = 1'b1;
+        check_output(2'd0, 16'sd1, 16'sd0, 8'h5a);
+        check_output(2'd1, 16'sd2, 16'sd0, 8'h5a);
+        check_output(2'd2, 16'sd3, 16'sd0, 8'h5a);
+        check_output(2'd3, 16'sd4, 16'sd0, 8'h5a);
+        do @(posedge aclk); while (!s_axis_tready);
+        @(negedge aclk); s_axis_tvalid = 1'b0;
+        send_input(16'sh7fff, 16'sh7fff, 4'hf, 1'b0);
+        send_input(16'sh7fff, 16'sh7fff, 4'hf, 1'b0);
+        send_input(16'sh7fff, 16'sh7fff, 4'hf, 1'b1);
+        for (idx = 0; idx < 4; idx = idx + 1) begin
+            do @(posedge aclk); while (!m_axis_tvalid);
+            if (!m_axis_tuser[2] || m_axis_tuser[10:3] !== 8'ha5
+                    || m_axis_tuser[1:0] !== idx[1:0]
+                    || m_axis_tlast !== (idx == 3))
+                $fatal(1, "Saturated output metadata mismatch");
+            @(negedge aclk);
+        end
 
         axi_read(32'h100, SLVERR, read_value);
         axi_read(32'h018, OKAY, read_value);

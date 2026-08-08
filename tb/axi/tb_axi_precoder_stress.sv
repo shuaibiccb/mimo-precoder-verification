@@ -117,23 +117,27 @@ module tb_axi_precoder_stress;
         // BVALID/BRESP must remain stable while the manager is stalled.
         @(negedge aclk); bready=0; awaddr=32'h008; awvalid=1;
         wdata=0; wstrb=4'hf; wvalid=1;
+        do @(posedge aclk); while (!(awready && wready));
+        @(negedge aclk); awvalid=0; wvalid=0;
         do @(posedge aclk); while (!bvalid); held_bresp=bresp;
         repeat(4) begin
             @(posedge aclk);
             if (!bvalid || bresp!==held_bresp) $fatal(1,"B channel unstable");
         end
-        @(negedge aclk); bready=1; awvalid=0; wvalid=0;
+        @(negedge aclk); bready=1;
         @(posedge aclk); @(negedge aclk);
 
         // RVALID/RDATA/RRESP must remain stable while the manager is stalled.
         rready=0; araddr=32'h000; arvalid=1;
+        do @(posedge aclk); while (!arready);
+        @(negedge aclk); arvalid=0;
         do @(posedge aclk); while (!rvalid); held_rdata=rdata;
         repeat(4) begin
             @(posedge aclk);
             if (!rvalid || rdata!==held_rdata || rresp!==OKAY)
                 $fatal(1,"R channel unstable");
         end
-        @(negedge aclk); rready=1; arvalid=0;
+        @(negedge aclk); rready=1;
         @(posedge aclk); @(negedge aclk);
         $display("STRESS: response stalls passed");
 

@@ -199,3 +199,7 @@ COVERAGE=1 bash sim/run_vcs.sh
 ## new第6阶段：Scoreboard与双参考模型
 
 UVM environment新增scoreboard，接收输入/输出monitor事务，使用Q14位精确参考规则逐拍比较结果，同时计算浮点EVM。阶段6日志必须包含 `UVM scoreboard checked 4 output beats` 且 `UVM_ERROR/UVM_FATAL`均为0。
+
+## new第7阶段：SVA断言与覆盖率收敛
+
+完整AXI wrapper已接入协议断言和功能覆盖模型，覆盖读写通道顺序与反压、流接口反压、非法TLAST/TKEEP、双Bank commit、忙期间pending、版本原子切换和饱和输出。服务器执行 `COVERAGE=1 bash sim/run_vcs.sh` 后，报告入口为 `build/vcs/coverage/report/dashboard.html`。当前干净回归达到功能覆盖95.83%、RTL模块行覆盖92.34%、条件覆盖86.71%和断言覆盖85.71%，详细结果与指标解释见 `docs/coverage_closure.md`。

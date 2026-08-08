@@ -103,3 +103,9 @@
 ## new第6阶段 Scoreboard与双参考模型
 
 UVM scoreboard连接输入和输出monitor：输入向量经过Q14位精确乘法/舍入/饱和参考路径生成期望值，输出transaction逐拍比较天线编号、TLAST、数据、饱和标志和矩阵版本；同时将定点结果反量化并计算浮点EVM。当前单位矩阵场景通过，EVM为0，UVM错误数为0。
+
+## new第7阶段 SVA与覆盖率收敛
+
+新增 `tb/assertions/axi_precoder_sva.sv`，检查AXI五个独立通道以及输入/输出流在反压期间保持稳定，并检查输出天线顺序、TLAST、TKEEP和事务内矩阵版本。新增 `tb/coverage/axi_precoder_coverage.sv`，覆盖AXI读写顺序和响应、非法流输入、双Bank、pending commit、版本更新、反压和饱和场景。
+
+服务器干净回归命令为 `COVERAGE=1 bash sim/run_vcs.sh`。当前功能覆盖95.83%，RTL模块行覆盖92.34%，条件覆盖86.71%，断言覆盖85.71%。完整记录见 `docs/coverage_closure.md`。
