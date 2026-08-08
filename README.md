@@ -238,3 +238,8 @@ AXI4-Lite `FORMAT` register at `0x044`. Reset remains Q1.14. A format change is
 allowed only while idle, invalidates both matrix banks, and requires a fresh
 matrix load. The UVM 8x8 Q1.10 test passed with zero errors and zero fatals;
 details are in `docs/stage15_12bit_format.md`.
+
+Stage 16 adds runtime `QUANT_CTRL` at `0x048`: bit0 selects truncation versus
+nearest-value rounding and bit1 selects wrap versus saturation. The default
+`00` preserves the previous behavior. The strategy is latched per transaction;
+busy writes are rejected. See `docs/stage16_runtime_quantization.md`.
