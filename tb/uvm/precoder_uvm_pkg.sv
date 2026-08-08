@@ -1389,7 +1389,7 @@ package precoder_uvm_pkg;
             for (i=0;i<256;i=i+1)
                 if (env.scoreboard.outstanding_tid[i])
                     `uvm_fatal("TID_TRACK_LEAK",$sformatf("TID %0d remains outstanding",i));
-            `uvm_info("PHASE18",$sformatf("ID scoreboard matched %0d accepted and %0d completed transactions; no duplicate, unknown, or leaked IDs",env.scoreboard.accepted_id_count,env.scoreboard.completed_id_count),UVM_LOW);
+            `uvm_info("PHASE18",$sformatf("ID scoreboard accepted=%0d completed=%0d; no duplicate, unknown, or leaked IDs",env.scoreboard.accepted_id_count,env.scoreboard.completed_id_count),UVM_LOW);
             phase.drop_objection(this);
         endtask
     endclass
