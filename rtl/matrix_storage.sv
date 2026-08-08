@@ -6,6 +6,7 @@ module matrix_storage #(
     input  logic                         clk_i,
     input  logic                         rst_ni,
     input  logic                         mode_8x8_i,
+    input  logic                         format_change_i,
     input  logic                         write_en_i,
     input  logic                         write_bank_i,
     input  logic [2:0]                   write_row_i,
@@ -50,6 +51,9 @@ module matrix_storage #(
                     end
                 end
             end
+        end else if (format_change_i) begin
+            written_mask[0] <= '0;
+            written_mask[1] <= '0;
         end else if (write_en_i) begin
             matrix_real[write_bank_i][write_row_i][write_col_i] <= write_real_i;
             matrix_imag[write_bank_i][write_row_i][write_col_i] <= write_imag_i;

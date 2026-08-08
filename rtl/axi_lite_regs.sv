@@ -32,6 +32,8 @@ module axi_lite_regs (
     output logic signed [15:0] cfg_imag_o,
 
     output logic        mode_8x8_o,
+    output logic        format_12_o,
+    output logic        format_change_o,
 
     output logic        commit_valid_o,
     input  logic        commit_ready_i,
@@ -81,6 +83,8 @@ module axi_lite_regs (
     logic        illegal_commit;
     logic        mode_write;
     logic        mode_write_value;
+    logic        format_write;
+    logic        format_write_value;
     logic        clear_errors;
     logic [7:0]  error_w1c_mask;
 
@@ -132,6 +136,9 @@ module axi_lite_regs (
         illegal_commit = 1'b0;
         mode_write = 1'b0;
         mode_write_value = mode_8x8_o;
+        format_write = 1'b0;
+        format_write_value = format_12_o;
+        format_change_o = 1'b0;
 
         if (write_execute) begin
             if (awaddr_stored[1:0] != 2'b00) begin
@@ -145,7 +152,10 @@ module axi_lite_regs (
                              && (awaddr_stored <= (mode_8x8_o
                                                   ? 32'h0000_02fc
                                                   : 32'h0000_023c)))) begin
-                if ((wstrb_stored != 4'b1111) || !cfg_ready_i) begin
+                if ((wstrb_stored != 4'b1111) || !cfg_ready_i
+                        || (format_12_o
+                            && ((write_data_masked[31:28] != {4{write_data_masked[27]}})
+                             || (write_data_masked[15:12] != {4{write_data_masked[11]}})))) begin
                     write_response = AXI_SLVERR;
                     illegal_matrix_write = 1'b1;
                     if (wstrb_stored != 4'b1111)
@@ -187,6 +197,20 @@ module axi_lite_regs (
                             mode_write_value = write_data_masked[0];
                         end
                     end
+                    32'h0000_0044: begin
+                        if ((wstrb_stored != 4'b1111)
+                                || (write_data_masked[31:1] != 31'd0)
+                                || busy_i || commit_pending_i) begin
+                            write_response = AXI_SLVERR;
+                            illegal_matrix_write = 1'b1;
+                            if (wstrb_stored != 4'b1111)
+                                write_align_error = 1'b1;
+                        end else begin
+                            format_write = 1'b1;
+                            format_write_value = write_data_masked[0];
+                            format_change_o = 1'b1;
+                        end
+                    end
                     default: begin
                         write_response = AXI_SLVERR;
                         write_decode_error = 1'b1;
@@ -226,6 +250,7 @@ module axi_lite_regs (
                 32'h0000_0038: read_data_next = cfg_write_count_i;
                 32'h0000_003c: read_data_next = commit_count_i;
                 32'h0000_0040: read_data_next = {31'd0,mode_8x8_o};
+                32'h0000_0044: read_data_next = {31'd0,format_12_o};
                 default: begin
                     read_response_next = AXI_SLVERR;
                     read_decode_error = 1'b1;
@@ -263,10 +288,13 @@ module axi_lite_regs (
             error_status_o <= 8'd0;
             core_protocol_error_q <= 1'b0;
             mode_8x8_o <= 1'b0;
+            format_12_o <= 1'b0;
         end else begin
             core_protocol_error_q <= core_protocol_error_i;
             if (mode_write)
                 mode_8x8_o <= mode_write_value;
+            if (format_write)
+                format_12_o <= format_write_value;
             if (s_axil_awvalid && s_axil_awready) begin
                 aw_stored <= 1'b1;
                 awaddr_stored <= s_axil_awaddr;

@@ -64,6 +64,8 @@ module tb_precoder_core;
         .clk_i(clk),
         .rst_ni(rst_n),
         .mode_8x8_i(1'b0),
+        .format_12_i(1'b0),
+        .format_change_i(1'b0),
         .cfg_valid_i(cfg_valid),
         .cfg_ready_o(cfg_ready),
         .cfg_bank_i(cfg_bank),

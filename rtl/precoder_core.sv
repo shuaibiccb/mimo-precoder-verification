@@ -8,6 +8,8 @@ module precoder_core #(
     input  logic                         clk_i,
     input  logic                         rst_ni,
     input  logic                         mode_8x8_i,
+    input  logic                         format_12_i,
+    input  logic                         format_change_i,
 
     input  logic                         cfg_valid_i,
     output logic                         cfg_ready_o,
@@ -72,6 +74,7 @@ module precoder_core #(
     logic [VERSION_WIDTH-1:0] pending_version;
     logic       transaction_bank;
     logic       transaction_mode_8x8;
+    logic       transaction_format_12;
     logic [VERSION_WIDTH-1:0] transaction_version;
     logic [VERSION_WIDTH-1:0] result_version;
     logic [2:0] transaction_last_index;
@@ -86,6 +89,10 @@ module precoder_core #(
     logic signed [DATA_WIDTH-1:0] rounded_imag [0:3];
     logic                         sat_real [0:3];
     logic                         sat_imag [0:3];
+    logic signed [11:0]            rounded_real_12 [0:3];
+    logic signed [11:0]            rounded_imag_12 [0:3];
+    logic                         sat_real_12 [0:3];
+    logic                         sat_imag_12 [0:3];
     logic signed [DATA_WIDTH-1:0] result_real [0:7];
     logic signed [DATA_WIDTH-1:0] result_imag [0:7];
     logic                         result_sat [0:7];
@@ -101,6 +108,7 @@ module precoder_core #(
 
     assign matrix_complete_o = bank_complete_o[active_bank_o];
     assign in_ready_o = matrix_complete_o
+                      && !format_change_i
                       && ((state == ST_LOAD)
                           || ((state == ST_IDLE) && !cfg_valid_i && !commit_valid_i));
     assign input_handshake = in_valid_i && in_ready_o;
@@ -123,6 +131,7 @@ module precoder_core #(
         .clk_i(clk_i),
         .rst_ni(rst_ni),
         .mode_8x8_i(mode_8x8_i),
+        .format_change_i(format_change_i),
         .write_en_i(cfg_write),
         .write_bank_i(cfg_bank_i),
         .write_row_i(cfg_row_i),
@@ -197,6 +206,28 @@ module precoder_core #(
                 .data_o(rounded_imag[lane]),
                 .saturated_o(sat_imag[lane])
             );
+
+            fixed_round_sat #(
+                .ACC_WIDTH(ACC_WIDTH),
+                .IN_FRAC(20),
+                .OUT_WIDTH(12),
+                .OUT_FRAC(10)
+            ) u_round_real_12 (
+                .acc_i(acc_real[lane]),
+                .data_o(rounded_real_12[lane]),
+                .saturated_o(sat_real_12[lane])
+            );
+
+            fixed_round_sat #(
+                .ACC_WIDTH(ACC_WIDTH),
+                .IN_FRAC(20),
+                .OUT_WIDTH(12),
+                .OUT_FRAC(10)
+            ) u_round_imag_12 (
+                .acc_i(acc_imag[lane]),
+                .data_o(rounded_imag_12[lane]),
+                .saturated_o(sat_imag_12[lane])
+            );
         end
     endgenerate
 
@@ -223,6 +254,7 @@ module precoder_core #(
             active_version_o <= '0;
             transaction_bank <= 1'b0;
             transaction_mode_8x8 <= 1'b0;
+            transaction_format_12 <= 1'b0;
             transaction_version <= '0;
             result_version <= '0;
             for (result_idx = 0; result_idx < 8; result_idx = result_idx + 1) begin
@@ -250,9 +282,12 @@ module precoder_core #(
                         active_version_o <= commit_version_i;
                         commit_pending_o <= 1'b0;
                     end else if (input_handshake) begin
-                        protocol_error_o <= in_last_i;
+                        protocol_error_o <= in_last_i
+                            || (format_12_i && ((in_real_i[15:12] != {4{in_real_i[11]}})
+                                               || (in_imag_i[15:12] != {4{in_imag_i[11]}})));
                         transaction_bank <= active_bank_o;
                         transaction_mode_8x8 <= mode_8x8_i;
+                        transaction_format_12 <= format_12_i;
                         transaction_version <= active_version_o;
                         symbol_write_idx <= 3'd1;
                         state <= ST_LOAD;
@@ -261,7 +296,10 @@ module precoder_core #(
 
                 ST_LOAD: begin
                     if (input_handshake) begin
-                        if (in_last_i != (symbol_write_idx == transaction_last_index)) begin
+                        if (in_last_i != (symbol_write_idx == transaction_last_index)
+                                || (transaction_format_12
+                                    && ((in_real_i[15:12] != {4{in_real_i[11]}})
+                                     || (in_imag_i[15:12] != {4{in_imag_i[11]}})))) begin
                             protocol_error_o <= 1'b1;
                         end
                         if (symbol_write_idx == transaction_last_index) begin
@@ -285,10 +323,15 @@ module precoder_core #(
 
                 ST_CAPTURE: begin
                     for (capture_idx = 0; capture_idx < 4; capture_idx = capture_idx + 1) begin
-                        result_real[(row_group ? 4 : 0)+capture_idx] <= rounded_real[capture_idx];
-                        result_imag[(row_group ? 4 : 0)+capture_idx] <= rounded_imag[capture_idx];
-                        result_sat[(row_group ? 4 : 0)+capture_idx]
-                            <= sat_real[capture_idx] || sat_imag[capture_idx];
+                        if (transaction_format_12) begin
+                            result_real[(row_group ? 4 : 0)+capture_idx] <= {{4{rounded_real_12[capture_idx][11]}}, rounded_real_12[capture_idx]};
+                            result_imag[(row_group ? 4 : 0)+capture_idx] <= {{4{rounded_imag_12[capture_idx][11]}}, rounded_imag_12[capture_idx]};
+                            result_sat[(row_group ? 4 : 0)+capture_idx] <= sat_real_12[capture_idx] || sat_imag_12[capture_idx];
+                        end else begin
+                            result_real[(row_group ? 4 : 0)+capture_idx] <= rounded_real[capture_idx];
+                            result_imag[(row_group ? 4 : 0)+capture_idx] <= rounded_imag[capture_idx];
+                            result_sat[(row_group ? 4 : 0)+capture_idx] <= sat_real[capture_idx] || sat_imag[capture_idx];
+                        end
                     end
                     if (transaction_mode_8x8 && !row_group) begin
                         row_group <= 1'b1;

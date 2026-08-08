@@ -314,7 +314,9 @@ package precoder_uvm_pkg;
         bit active_bank;
         bit [7:0] active_version;
         bit active_mode_8x8;
+        bit active_format_12;
         bit transaction_mode_8x8;
+        bit transaction_format_12;
         bit pending;
         bit pending_bank;
         bit [7:0] pending_version;
@@ -333,8 +335,8 @@ package precoder_uvm_pkg;
             integer bank, row, col;
             super.build_phase(phase);
             input_index=0; output_index=0; vector_active=0;
-            active_bank=0; active_version=0; active_mode_8x8=0;
-            transaction_mode_8x8=0; pending=0;
+            active_bank=0; active_version=0; active_mode_8x8=0; active_format_12=0;
+            transaction_mode_8x8=0; transaction_format_12=0; pending=0;
             error_energy=0.0; reference_energy=0.0; last_evm=0.0; max_evm=0.0;
             checked_vectors=0; busy_commit_count=0; saturated_output_count=0;
             for (bank=0; bank<2; bank=bank+1)
@@ -344,22 +346,29 @@ package precoder_uvm_pkg;
                         matrix_imag[bank][row][col]=0;
                     end
         endfunction
-        function automatic int signed round_q14(input longint signed value,
-                                                  output bit saturated);
+        function automatic int signed round_output(input longint signed value,
+                                                    input bit format_12,
+                                                    output bit saturated);
             longint signed magnitude; longint signed rounded;
+            int signed shift, max_value, min_value;
+            shift = format_12 ? 10 : 14;
+            max_value = format_12 ? 2047 : 32767;
+            min_value = format_12 ? -2048 : -32768;
             magnitude = (value < 0) ? -value : value;
-            rounded = (magnitude + (64'sd1 << 13)) >>> 14;
+            rounded = (magnitude + (64'sd1 << (shift-1))) >>> shift;
             if (value < 0) rounded = -rounded;
             saturated=0;
-            if (rounded > 32767) begin rounded=32767; saturated=1; end
-            if (rounded < -32768) begin rounded=-32768; saturated=1; end
+            if (rounded > max_value) begin rounded=max_value; saturated=1; end
+            if (rounded < min_value) begin rounded=min_value; saturated=1; end
             return rounded;
         endfunction
         function void calculate_expected();
             integer row, col, dimension;
             longint signed acc_real, acc_imag;
             bit sat_real, sat_imag;
+            real scale;
             dimension = transaction_mode_8x8 ? 8 : 4;
+            scale = transaction_format_12 ? 1024.0 : 16384.0;
             for (row=0; row<dimension; row=row+1) begin
                 acc_real=0; acc_imag=0; floating_real[row]=0.0; floating_imag[row]=0.0;
                 for (col=0; col<dimension; col=col+1) begin
@@ -372,23 +381,23 @@ package precoder_uvm_pkg;
                               + $signed(matrix_imag[transaction_bank][row][col])
                               * $signed(vector_real[col]);
                     floating_real[row] +=
-                        (matrix_real[transaction_bank][row][col] / 16384.0)
-                        * (vector_real[col] / 16384.0)
-                        - (matrix_imag[transaction_bank][row][col] / 16384.0)
-                        * (vector_imag[col] / 16384.0);
+                        (matrix_real[transaction_bank][row][col] / scale)
+                        * (vector_real[col] / scale)
+                        - (matrix_imag[transaction_bank][row][col] / scale)
+                        * (vector_imag[col] / scale);
                     floating_imag[row] +=
-                        (matrix_real[transaction_bank][row][col] / 16384.0)
-                        * (vector_imag[col] / 16384.0)
-                        + (matrix_imag[transaction_bank][row][col] / 16384.0)
-                        * (vector_real[col] / 16384.0);
+                        (matrix_real[transaction_bank][row][col] / scale)
+                        * (vector_imag[col] / scale)
+                        + (matrix_imag[transaction_bank][row][col] / scale)
+                        * (vector_real[col] / scale);
                 end
-                expected_real[row]=round_q14(acc_real,sat_real);
-                expected_imag[row]=round_q14(acc_imag,sat_imag);
+                expected_real[row]=round_output(acc_real,transaction_format_12,sat_real);
+                expected_imag[row]=round_output(acc_imag,transaction_format_12,sat_imag);
                 expected_saturated[row]=sat_real || sat_imag;
             end
         endfunction
         function void write_lite(axi_lite_item tr);
-            int index, row, col;
+            int index, row, col, reset_bank, reset_row, reset_col;
             bit bank;
             if (!tr.is_write || tr.response != 2'b00) return;
             if (((tr.addr >= 32'h100) && (tr.addr <= (active_mode_8x8 ? 32'h1fc : 32'h13c)))
@@ -399,6 +408,14 @@ package precoder_uvm_pkg;
                 col=active_mode_8x8 ? index%8 : index%4;
                 matrix_real[bank][row][col]=tr.data[31:16];
                 matrix_imag[bank][row][col]=tr.data[15:0];
+            end else if ((tr.addr == 32'h44) && (tr.data[31:1] == 0)) begin
+                active_format_12=tr.data[0];
+                for (reset_bank=0; reset_bank<2; reset_bank=reset_bank+1)
+                    for (reset_row=0; reset_row<8; reset_row=reset_row+1)
+                        for (reset_col=0; reset_col<8; reset_col=reset_col+1) begin
+                            matrix_real[reset_bank][reset_row][reset_col]=0;
+                            matrix_imag[reset_bank][reset_row][reset_col]=0;
+                        end
             end else if ((tr.addr == 32'h40) && (tr.data[31:1] == 0)) begin
                 active_mode_8x8=tr.data[0];
             end else if ((tr.addr == 32'h10) && tr.data[31]) begin
@@ -412,12 +429,19 @@ package precoder_uvm_pkg;
         endfunction
         function void write_input(axi_stream_in_item tr);
             if (tr.keep != 4'hf) `uvm_error("REF_TKEEP","reference input has invalid TKEEP")
+            if (active_format_12
+                    && ((tr.real_part[15:12] != {4{tr.real_part[11]}})
+                     || (tr.imag_part[15:12] != {4{tr.imag_part[11]}})))
+                `uvm_error("REF_FORMAT","12-bit input is not sign extended")
             if (tr.last !== (input_index == (active_mode_8x8 ? 7 : 3)))
                 `uvm_error("REF_INPUT_LAST",$sformatf("bad input TLAST on beat %0d",input_index))
             vector_real[input_index]=tr.real_part;
             vector_imag[input_index]=tr.imag_part;
             if (input_index == 0)
-                transaction_mode_8x8=active_mode_8x8;
+                begin
+                    transaction_mode_8x8=active_mode_8x8;
+                    transaction_format_12=active_format_12;
+                end
             if (input_index == (active_mode_8x8 ? 7 : 3)) begin
                 transaction_bank=active_bank; transaction_version=active_version;
                 vector_active=1; calculate_expected(); input_index=0;
@@ -442,7 +466,8 @@ package precoder_uvm_pkg;
             if (tr.saturated) saturated_output_count++;
             exp_real = floating_real[output_index];
             exp_imag = floating_imag[output_index];
-            got_real = tr.real_part / 16384.0; got_imag = tr.imag_part / 16384.0;
+            got_real = tr.real_part / (transaction_format_12 ? 1024.0 : 16384.0);
+            got_imag = tr.imag_part / (transaction_format_12 ? 1024.0 : 16384.0);
             error_energy += (got_real-exp_real)*(got_real-exp_real) + (got_imag-exp_imag)*(got_imag-exp_imag);
             reference_energy += exp_real*exp_real + exp_imag*exp_imag;
             output_index++;
@@ -701,6 +726,19 @@ package precoder_uvm_pkg;
         task body();
             axi_lite_item tr=axi_lite_item::type_id::create("mode_write");
             tr.is_write=1; tr.addr=32'h40; tr.data={31'd0,mode_8x8};
+            tr.strb=4'hf; tr.w_first=$urandom_range(1);
+            start_item(tr); finish_item(tr); response=tr.response;
+        endtask
+    endclass
+
+    class format_write_sequence extends uvm_sequence#(axi_lite_item);
+        `uvm_object_utils(format_write_sequence)
+        bit format_12;
+        bit [1:0] response;
+        function new(string name="format_write_sequence"); super.new(name); endfunction
+        task body();
+            axi_lite_item tr=axi_lite_item::type_id::create("format_write");
+            tr.is_write=1; tr.addr=32'h44; tr.data={31'd0,format_12};
             tr.strb=4'hf; tr.w_first=$urandom_range(1);
             start_item(tr); finish_item(tr); response=tr.response;
         endtask
@@ -975,6 +1013,91 @@ package precoder_uvm_pkg;
                 `uvm_fatal("8X8_COUNT",$sformatf("expected 2 checked vectors got %0d",env.scoreboard.checked_vectors));
             write_mode(1'b0);
             `uvm_info("PHASE13",$sformatf("8x8 UVM reference checked %0d vectors, busy commit=%0d, max EVM=%0.6e",env.scoreboard.checked_vectors,env.scoreboard.busy_commit_count,env.scoreboard.max_evm),UVM_LOW);
+            phase.drop_objection(this);
+        endtask
+    endclass
+
+    class precoder_12bit_test extends uvm_test;
+        `uvm_component_utils(precoder_12bit_test)
+        precoder_env env;
+        function new(string name, uvm_component parent); super.new(name,parent); endfunction
+        function void build_phase(uvm_phase phase);
+            super.build_phase(phase);
+            uvm_config_db#(int)::set(this,"env.stream_in_agent.driver","gap_max",1);
+            uvm_config_db#(int)::set(this,"env.stream_out_agent.driver","stall_percent",25);
+            uvm_config_db#(int)::set(this,"env.lite_agent.driver","response_stall_max",2);
+            env=precoder_env::type_id::create("env",this);
+        endfunction
+        function automatic bit signed [15:0] q10(input int signed value);
+            return $signed({{4{value[11]}},value[11:0]});
+        endfunction
+        task write_format(input bit format_12, input bit expect_ok);
+            format_write_sequence seq=format_write_sequence::type_id::create($sformatf("format_%0d",format_12));
+            seq.format_12=format_12; seq.start(env.lite_agent.sequencer);
+            if (expect_ok && (seq.response != 2'b00))
+                `uvm_fatal("FORMAT_WRITE",$sformatf("FORMAT=%0d response %b",format_12,seq.response));
+            if (!expect_ok && (seq.response != 2'b10))
+                `uvm_fatal("FORMAT_BUSY",$sformatf("busy FORMAT response %b",seq.response));
+        endtask
+        task write_mode(input bit mode);
+            mode_write_sequence seq=mode_write_sequence::type_id::create($sformatf("mode_%0d",mode));
+            seq.mode_8x8=mode; seq.start(env.lite_agent.sequencer);
+            if (seq.response != 2'b00)
+                `uvm_fatal("MODE_WRITE",$sformatf("MODE=%0d response %b",mode,seq.response));
+        endtask
+        task program_bank8_12(input bit bank);
+            programmable_matrix_sequence cfg;
+            integer row, col, index;
+            cfg=programmable_matrix_sequence::type_id::create($sformatf("bank8_12_%0d",bank));
+            cfg.bank=bank; cfg.mode_8x8=1;
+            for (row=0;row<8;row=row+1)
+                for (col=0;col<8;col=col+1) begin
+                    index=row*8+col;
+                    cfg.coeff_real[index]=q10((row == col) ? 768 : ((row-col)*17));
+                    cfg.coeff_imag[index]=q10((row == col) ? 0 : ((col-row)*9));
+                end
+            cfg.start(env.lite_agent.sequencer);
+        endtask
+        task send_vector8_12();
+            programmable_vector_sequence seq;
+            integer i;
+            seq=programmable_vector_sequence::type_id::create("vector8_12");
+            seq.mode_8x8=1;
+            for (i=0;i<8;i=i+1) begin
+                seq.sample_real[i]=q10((i % 2) ? -(i+1)*93 : (i+1)*77);
+                seq.sample_imag[i]=q10((i % 3) ? (i+1)*31 : -(i+1)*47);
+            end
+            seq.start(env.stream_in_agent.sequencer);
+        endtask
+        task run_phase(uvm_phase phase);
+            axi_lite_read_sequence read_format;
+            axi_lite_write_sequence busy_format;
+            integer i;
+            phase.raise_objection(this);
+            wait(env.lite_agent.vif.aresetn); repeat(2) @(posedge env.lite_agent.vif.aclk);
+            write_format(1'b1,1'b1);
+            write_mode(1'b1);
+            program_bank8_12(1'b0);
+            read_format=axi_lite_read_sequence::type_id::create("read_format");
+            read_format.addr=32'h44; read_format.start(env.lite_agent.sequencer);
+            if ((read_format.response != 2'b00) || (read_format.read_data != 32'd1))
+                `uvm_fatal("FORMAT_READ",$sformatf("FORMAT read response=%b data=%h",read_format.response,read_format.read_data));
+            send_vector8_12();
+            busy_format=axi_lite_write_sequence::type_id::create("busy_format");
+            busy_format.addr=32'h44; busy_format.data=32'd0; busy_format.strb=4'hf;
+            busy_format.w_first=0; busy_format.start(env.lite_agent.sequencer);
+            if (busy_format.response != 2'b10)
+                `uvm_fatal("FORMAT_BUSY",$sformatf("expected busy FORMAT SLVERR got %b",busy_format.response));
+            wait(env.scoreboard.checked_vectors >= 1);
+            if (env.scoreboard.checked_vectors != 1)
+                `uvm_fatal("FORMAT_COUNT",$sformatf("expected one checked vector got %0d",env.scoreboard.checked_vectors));
+            for (i=0;i<8;i=i+1) begin
+                axi_stream_out_item out;
+                env.output_fifo.get(out);
+                if (out.antenna !== i[2:0] || out.last !== (i==7))
+                    `uvm_fatal("FORMAT_META",$sformatf("antenna=%0d last=%0d",out.antenna,out.last));
+            end
+            `uvm_info("PHASE15",$sformatf("12-bit Q1.10 8x8 reference checked %0d vector, max EVM=%0.6e",env.scoreboard.checked_vectors,env.scoreboard.max_evm),UVM_LOW);
             phase.drop_objection(this);
         endtask
     endclass

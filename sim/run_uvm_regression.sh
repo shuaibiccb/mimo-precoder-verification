@@ -9,7 +9,8 @@ vectors=${VECTORS:-12}
 base_seed=${BASE_SEED:-20260808}
 mkdir -p build/vcs/uvm/regression
 rm -rf build/vcs/uvm/regression/sva_report build/vcs/uvm/regression/seed_*.vdb \
-  build/vcs/uvm/regression/precoder_8x8.vdb
+  build/vcs/uvm/regression/precoder_8x8.vdb \
+  build/vcs/uvm/regression/precoder_12bit.vdb
 
 for ((run=0; run<runs; run++)); do
   seed=$((base_seed + run))
@@ -29,12 +30,19 @@ UVM_TEST=precoder_8x8_test VECTORS=2 SEED=$((base_seed + runs)) \
   RUN_LOG="build/vcs/uvm/regression/precoder_8x8.log" SKIP_COMPILE=1 \
   bash sim/run_uvm.sh
 
+echo "UVM 12-bit Q1.10 format test"
+UVM_TEST=precoder_12bit_test VECTORS=1 SEED=$((base_seed + runs + 1)) \
+  SVA_COVERAGE=1 SVA_VDB="build/vcs/uvm/regression/precoder_12bit.vdb" \
+  RUN_LOG="build/vcs/uvm/regression/precoder_12bit.log" SKIP_COMPILE=1 \
+  bash sim/run_uvm.sh
+
 vdbs=(build/vcs/uvm/regression/seed_*.vdb)
 if [[ ! -d "${vdbs[0]}" ]]; then
   echo "ERROR: no SVA coverage database was generated" >&2
   exit 1
 fi
 urg -full64 -dir "${vdbs[@]}" build/vcs/uvm/regression/precoder_8x8.vdb \
+  build/vcs/uvm/regression/precoder_12bit.vdb \
   -report build/vcs/uvm/regression/sva_report \
   -log build/vcs/uvm/regression/sva_urg.log
 if [[ ! -f build/vcs/uvm/regression/sva_report/dashboard.html ]]; then

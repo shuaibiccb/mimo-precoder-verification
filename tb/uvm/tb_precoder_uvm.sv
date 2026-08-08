@@ -20,6 +20,7 @@ module tb_precoder_uvm;
     assign perf_if.cfg_write = dut.cfg_write_pulse;
     assign perf_if.commit = dut.commit_pulse;
     assign perf_if.mode_8x8 = dut.mode_8x8;
+    assign perf_if.format_12 = dut.format_12;
     assign perf_if.cycle_count = dut.cycle_count;
     assign perf_if.input_vector_count = dut.input_vector_count;
     assign perf_if.output_vector_count = dut.output_vector_count;
