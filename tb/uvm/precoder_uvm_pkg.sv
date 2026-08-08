@@ -473,6 +473,7 @@ package precoder_uvm_pkg;
         longint unsigned expected_commit_count;
         longint unsigned wall_cycle;
         longint unsigned accept_cycles[$];
+        longint unsigned predicted_base_cycles[$];
         longint unsigned active_output_stalls;
         longint unsigned first_accept_cycle;
         longint unsigned first_complete_cycle;
@@ -504,6 +505,7 @@ package precoder_uvm_pkg;
             expected_output_stall_count=0; expected_saturation_count=0;
             expected_cfg_write_count=0; expected_commit_count=0;
             accept_cycles.delete(); active_output_stalls=0;
+            predicted_base_cycles.delete();
             first_accept_cycle=0; first_complete_cycle=0; last_complete_cycle=0;
             latency_sum=0; min_latency='1; max_latency=0; completed_vectors=0;
             read_pending=0; read_address=0; read_expected=0;
@@ -552,6 +554,7 @@ package precoder_uvm_pkg;
                     if (!clear_sample) begin
                         if (input_vector_sample) begin
                             accept_cycles.push_back(wall_cycle);
+                            predicted_base_cycles.push_back(vif.mode_8x8 ? 26 : 9);
                             if (first_accept_cycle == 0) first_accept_cycle=wall_cycle;
                             active_output_stalls=0;
                         end
@@ -564,7 +567,13 @@ package precoder_uvm_pkg;
                             end else begin
                                 accept_cycle=accept_cycles.pop_front();
                                 latency=wall_cycle-accept_cycle;
-                                predicted_latency=9+active_output_stalls;
+                                if (predicted_base_cycles.size() == 0) begin
+                                    latency_mismatch_count++;
+                                    `uvm_error("PERF_LATENCY","missing predicted latency for completed input")
+                                    predicted_latency=0;
+                                end else begin
+                                    predicted_latency=predicted_base_cycles.pop_front()+active_output_stalls;
+                                end
                                 if (latency != predicted_latency) begin
                                     latency_mismatch_count++;
                                     `uvm_error("PERF_LATENCY",$sformatf("predicted %0d cycles got %0d",predicted_latency,latency))

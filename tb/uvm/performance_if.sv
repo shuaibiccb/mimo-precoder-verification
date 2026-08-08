@@ -9,6 +9,7 @@ interface performance_if(input logic aclk, input logic aresetn);
     logic saturation;
     logic cfg_write;
     logic commit;
+    logic mode_8x8;
 
     logic [31:0] cycle_count;
     logic [31:0] input_vector_count;
