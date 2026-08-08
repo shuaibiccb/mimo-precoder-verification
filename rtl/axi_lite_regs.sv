@@ -34,6 +34,8 @@ module axi_lite_regs (
     output logic        mode_8x8_o,
     output logic        format_12_o,
     output logic        format_change_o,
+    output logic        truncate_o,
+    output logic        wrap_o,
 
     output logic        commit_valid_o,
     input  logic        commit_ready_i,
@@ -85,6 +87,9 @@ module axi_lite_regs (
     logic        mode_write_value;
     logic        format_write;
     logic        format_write_value;
+    logic        quant_write;
+    logic        quant_write_truncate;
+    logic        quant_write_wrap;
     logic        clear_errors;
     logic [7:0]  error_w1c_mask;
 
@@ -139,6 +144,9 @@ module axi_lite_regs (
         format_write = 1'b0;
         format_write_value = format_12_o;
         format_change_o = 1'b0;
+        quant_write = 1'b0;
+        quant_write_truncate = truncate_o;
+        quant_write_wrap = wrap_o;
 
         if (write_execute) begin
             if (awaddr_stored[1:0] != 2'b00) begin
@@ -211,6 +219,20 @@ module axi_lite_regs (
                             format_change_o = 1'b1;
                         end
                     end
+                    32'h0000_0048: begin
+                        if ((wstrb_stored != 4'b1111)
+                                || (write_data_masked[31:2] != 30'd0)
+                                || busy_i || commit_pending_i) begin
+                            write_response = AXI_SLVERR;
+                            illegal_matrix_write = 1'b1;
+                            if (wstrb_stored != 4'b1111)
+                                write_align_error = 1'b1;
+                        end else begin
+                            quant_write = 1'b1;
+                            quant_write_truncate = write_data_masked[0];
+                            quant_write_wrap = write_data_masked[1];
+                        end
+                    end
                     default: begin
                         write_response = AXI_SLVERR;
                         write_decode_error = 1'b1;
@@ -251,6 +273,7 @@ module axi_lite_regs (
                 32'h0000_003c: read_data_next = commit_count_i;
                 32'h0000_0040: read_data_next = {31'd0,mode_8x8_o};
                 32'h0000_0044: read_data_next = {31'd0,format_12_o};
+                32'h0000_0048: read_data_next = {30'd0,wrap_o,truncate_o};
                 default: begin
                     read_response_next = AXI_SLVERR;
                     read_decode_error = 1'b1;
@@ -289,12 +312,18 @@ module axi_lite_regs (
             core_protocol_error_q <= 1'b0;
             mode_8x8_o <= 1'b0;
             format_12_o <= 1'b0;
+            truncate_o <= 1'b0;
+            wrap_o <= 1'b0;
         end else begin
             core_protocol_error_q <= core_protocol_error_i;
             if (mode_write)
                 mode_8x8_o <= mode_write_value;
             if (format_write)
                 format_12_o <= format_write_value;
+            if (quant_write) begin
+                truncate_o <= quant_write_truncate;
+                wrap_o <= quant_write_wrap;
+            end
             if (s_axil_awvalid && s_axil_awready) begin
                 aw_stored <= 1'b1;
                 awaddr_stored <= s_axil_awaddr;

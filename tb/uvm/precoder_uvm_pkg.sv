@@ -315,8 +315,12 @@ package precoder_uvm_pkg;
         bit [7:0] active_version;
         bit active_mode_8x8;
         bit active_format_12;
+        bit active_truncate;
+        bit active_wrap;
         bit transaction_mode_8x8;
         bit transaction_format_12;
+        bit transaction_truncate;
+        bit transaction_wrap;
         bit pending;
         bit pending_bank;
         bit [7:0] pending_version;
@@ -336,7 +340,9 @@ package precoder_uvm_pkg;
             super.build_phase(phase);
             input_index=0; output_index=0; vector_active=0;
             active_bank=0; active_version=0; active_mode_8x8=0; active_format_12=0;
-            transaction_mode_8x8=0; transaction_format_12=0; pending=0;
+            active_truncate=0; active_wrap=0;
+            transaction_mode_8x8=0; transaction_format_12=0;
+            transaction_truncate=0; transaction_wrap=0; pending=0;
             error_energy=0.0; reference_energy=0.0; last_evm=0.0; max_evm=0.0;
             checked_vectors=0; busy_commit_count=0; saturated_output_count=0;
             for (bank=0; bank<2; bank=bank+1)
@@ -348,6 +354,8 @@ package precoder_uvm_pkg;
         endfunction
         function automatic int signed round_output(input longint signed value,
                                                     input bit format_12,
+                                                    input bit truncate_mode,
+                                                    input bit wrap_mode,
                                                     output bit saturated);
             longint signed magnitude; longint signed rounded;
             int signed shift, max_value, min_value;
@@ -355,11 +363,15 @@ package precoder_uvm_pkg;
             max_value = format_12 ? 2047 : 32767;
             min_value = format_12 ? -2048 : -32768;
             magnitude = (value < 0) ? -value : value;
-            rounded = (magnitude + (64'sd1 << (shift-1))) >>> shift;
+            rounded = (magnitude + (truncate_mode ? 0 : (64'sd1 << (shift-1)))) >>> shift;
             if (value < 0) rounded = -rounded;
             saturated=0;
-            if (rounded > max_value) begin rounded=max_value; saturated=1; end
-            if (rounded < min_value) begin rounded=min_value; saturated=1; end
+            if (!wrap_mode && (rounded > max_value)) begin rounded=max_value; saturated=1; end
+            if (!wrap_mode && (rounded < min_value)) begin rounded=min_value; saturated=1; end
+            if (wrap_mode) begin
+                if (format_12) rounded = $signed(rounded[11:0]);
+                else rounded = $signed(rounded[15:0]);
+            end
             return rounded;
         endfunction
         function void calculate_expected();
@@ -391,8 +403,10 @@ package precoder_uvm_pkg;
                         + (matrix_imag[transaction_bank][row][col] / scale)
                         * (vector_real[col] / scale);
                 end
-                expected_real[row]=round_output(acc_real,transaction_format_12,sat_real);
-                expected_imag[row]=round_output(acc_imag,transaction_format_12,sat_imag);
+                expected_real[row]=round_output(acc_real,transaction_format_12,
+                                                transaction_truncate,transaction_wrap,sat_real);
+                expected_imag[row]=round_output(acc_imag,transaction_format_12,
+                                                transaction_truncate,transaction_wrap,sat_imag);
                 expected_saturated[row]=sat_real || sat_imag;
             end
         endfunction
@@ -416,6 +430,9 @@ package precoder_uvm_pkg;
                             matrix_real[reset_bank][reset_row][reset_col]=0;
                             matrix_imag[reset_bank][reset_row][reset_col]=0;
                         end
+            end else if ((tr.addr == 32'h48) && (tr.data[31:2] == 0)) begin
+                active_truncate=tr.data[0];
+                active_wrap=tr.data[1];
             end else if ((tr.addr == 32'h40) && (tr.data[31:1] == 0)) begin
                 active_mode_8x8=tr.data[0];
             end else if ((tr.addr == 32'h10) && tr.data[31]) begin
@@ -441,6 +458,8 @@ package precoder_uvm_pkg;
                 begin
                     transaction_mode_8x8=active_mode_8x8;
                     transaction_format_12=active_format_12;
+                    transaction_truncate=active_truncate;
+                    transaction_wrap=active_wrap;
                 end
             if (input_index == (active_mode_8x8 ? 7 : 3)) begin
                 transaction_bank=active_bank; transaction_version=active_version;
@@ -740,6 +759,21 @@ package precoder_uvm_pkg;
             axi_lite_item tr=axi_lite_item::type_id::create("format_write");
             tr.is_write=1; tr.addr=32'h44; tr.data={31'd0,format_12};
             tr.strb=4'hf; tr.w_first=$urandom_range(1);
+            start_item(tr); finish_item(tr); response=tr.response;
+        endtask
+    endclass
+
+    class quant_write_sequence extends uvm_sequence#(axi_lite_item);
+        `uvm_object_utils(quant_write_sequence)
+        bit truncate_mode;
+        bit wrap_mode;
+        bit [1:0] response;
+        function new(string name="quant_write_sequence"); super.new(name); endfunction
+        task body();
+            axi_lite_item tr=axi_lite_item::type_id::create("quant_write");
+            tr.is_write=1; tr.addr=32'h48;
+            tr.data={30'd0,wrap_mode,truncate_mode}; tr.strb=4'hf;
+            tr.w_first=$urandom_range(1);
             start_item(tr); finish_item(tr); response=tr.response;
         endtask
     endclass
@@ -1098,6 +1132,88 @@ package precoder_uvm_pkg;
                     `uvm_fatal("FORMAT_META",$sformatf("antenna=%0d last=%0d",out.antenna,out.last));
             end
             `uvm_info("PHASE15",$sformatf("12-bit Q1.10 8x8 reference checked %0d vector, max EVM=%0.6e",env.scoreboard.checked_vectors,env.scoreboard.max_evm),UVM_LOW);
+            phase.drop_objection(this);
+        endtask
+    endclass
+
+    class precoder_quantization_test extends uvm_test;
+        `uvm_component_utils(precoder_quantization_test)
+        precoder_env env;
+        function new(string name, uvm_component parent); super.new(name,parent); endfunction
+        function void build_phase(uvm_phase phase);
+            super.build_phase(phase);
+            uvm_config_db#(int)::set(this,"env.stream_in_agent.driver","gap_max",0);
+            uvm_config_db#(int)::set(this,"env.stream_out_agent.driver","stall_percent",0);
+            uvm_config_db#(int)::set(this,"env.lite_agent.driver","response_stall_max",0);
+            env=precoder_env::type_id::create("env",this);
+        endfunction
+        task configure_diagonal();
+            programmable_matrix_sequence cfg;
+            integer i;
+            cfg=programmable_matrix_sequence::type_id::create("quant_matrix");
+            cfg.bank=0; cfg.mode_8x8=0;
+            for (i=0;i<16;i=i+1) begin
+                cfg.coeff_real[i]=(i/4 == i%4) ? 16'sh7fff : 16'sd0;
+                cfg.coeff_imag[i]=16'sd0;
+            end
+            cfg.start(env.lite_agent.sequencer);
+        endtask
+        task send_full_scale_vector();
+            programmable_vector_sequence seq;
+            integer i;
+            seq=programmable_vector_sequence::type_id::create("quant_vector");
+            seq.mode_8x8=0;
+            for (i=0;i<4;i=i+1) begin
+                seq.sample_real[i]=16'sh7fff;
+                seq.sample_imag[i]=16'sd0;
+            end
+            seq.start(env.stream_in_agent.sequencer);
+        endtask
+        task wait_for_vector(input int expected_count);
+            int timeout;
+            timeout=0;
+            while ((env.scoreboard.checked_vectors < expected_count) && (timeout < 5000)) begin
+                @(posedge env.lite_agent.vif.aclk); timeout++;
+            end
+            if (env.scoreboard.checked_vectors < expected_count)
+                `uvm_fatal("QUANT_TIMEOUT",$sformatf("expected %0d checked vectors got %0d",expected_count,env.scoreboard.checked_vectors));
+        endtask
+        task write_quant(input bit truncate_mode, input bit wrap_mode);
+            quant_write_sequence seq;
+            seq=quant_write_sequence::type_id::create($sformatf("quant_%0d_%0d",truncate_mode,wrap_mode));
+            seq.truncate_mode=truncate_mode; seq.wrap_mode=wrap_mode;
+            seq.start(env.lite_agent.sequencer);
+            if (seq.response != 2'b00)
+                `uvm_fatal("QUANT_WRITE",$sformatf("QUANT_CTRL response %b",seq.response));
+        endtask
+        task run_phase(uvm_phase phase);
+            axi_lite_read_sequence read_quant;
+            axi_lite_write_sequence busy_quant;
+            phase.raise_objection(this);
+            wait(env.lite_agent.vif.aresetn); repeat(2) @(posedge env.lite_agent.vif.aclk);
+            configure_diagonal();
+            write_quant(1'b0,1'b0);
+            send_full_scale_vector();
+            wait_for_vector(1);
+            if (env.scoreboard.saturated_output_count != 4)
+                `uvm_fatal("QUANT_SAT",$sformatf("expected four saturated outputs got %0d",env.scoreboard.saturated_output_count));
+            write_quant(1'b0,1'b1);
+            send_full_scale_vector();
+            wait_for_vector(2);
+            if (env.scoreboard.saturated_output_count != 4)
+                `uvm_fatal("QUANT_WRAP_SAT",$sformatf("wrap mode must suppress saturation, count=%0d",env.scoreboard.saturated_output_count));
+            read_quant=axi_lite_read_sequence::type_id::create("read_quant");
+            read_quant.addr=32'h48; read_quant.start(env.lite_agent.sequencer);
+            if ((read_quant.response != 2'b00) || (read_quant.read_data != 32'h2))
+                `uvm_fatal("QUANT_READ",$sformatf("QUANT_CTRL read response=%b data=%h",read_quant.response,read_quant.read_data));
+            send_full_scale_vector();
+            busy_quant=axi_lite_write_sequence::type_id::create("busy_quant");
+            busy_quant.addr=32'h48; busy_quant.data=32'h1; busy_quant.strb=4'hf;
+            busy_quant.w_first=0; busy_quant.start(env.lite_agent.sequencer);
+            if (busy_quant.response != 2'b10)
+                `uvm_fatal("QUANT_BUSY",$sformatf("expected busy QUANT_CTRL SLVERR got %b",busy_quant.response));
+            wait_for_vector(3);
+            `uvm_info("PHASE16",$sformatf("runtime quantization checked %0d vectors; saturations=%0d",env.scoreboard.checked_vectors,env.scoreboard.saturated_output_count),UVM_LOW);
             phase.drop_objection(this);
         endtask
     endclass

@@ -10,6 +10,8 @@ module precoder_core #(
     input  logic                         mode_8x8_i,
     input  logic                         format_12_i,
     input  logic                         format_change_i,
+    input  logic                         truncate_i,
+    input  logic                         wrap_i,
 
     input  logic                         cfg_valid_i,
     output logic                         cfg_ready_o,
@@ -75,6 +77,8 @@ module precoder_core #(
     logic       transaction_bank;
     logic       transaction_mode_8x8;
     logic       transaction_format_12;
+    logic       transaction_truncate;
+    logic       transaction_wrap;
     logic [VERSION_WIDTH-1:0] transaction_version;
     logic [VERSION_WIDTH-1:0] result_version;
     logic [2:0] transaction_last_index;
@@ -192,6 +196,8 @@ module precoder_core #(
                 .OUT_FRAC(14)
             ) u_round_real (
                 .acc_i(acc_real[lane]),
+                .truncate_i(transaction_truncate),
+                .wrap_i(transaction_wrap),
                 .data_o(rounded_real[lane]),
                 .saturated_o(sat_real[lane])
             );
@@ -203,6 +209,8 @@ module precoder_core #(
                 .OUT_FRAC(14)
             ) u_round_imag (
                 .acc_i(acc_imag[lane]),
+                .truncate_i(transaction_truncate),
+                .wrap_i(transaction_wrap),
                 .data_o(rounded_imag[lane]),
                 .saturated_o(sat_imag[lane])
             );
@@ -214,6 +222,8 @@ module precoder_core #(
                 .OUT_FRAC(10)
             ) u_round_real_12 (
                 .acc_i(acc_real[lane]),
+                .truncate_i(transaction_truncate),
+                .wrap_i(transaction_wrap),
                 .data_o(rounded_real_12[lane]),
                 .saturated_o(sat_real_12[lane])
             );
@@ -225,6 +235,8 @@ module precoder_core #(
                 .OUT_FRAC(10)
             ) u_round_imag_12 (
                 .acc_i(acc_imag[lane]),
+                .truncate_i(transaction_truncate),
+                .wrap_i(transaction_wrap),
                 .data_o(rounded_imag_12[lane]),
                 .saturated_o(sat_imag_12[lane])
             );
@@ -255,6 +267,8 @@ module precoder_core #(
             transaction_bank <= 1'b0;
             transaction_mode_8x8 <= 1'b0;
             transaction_format_12 <= 1'b0;
+            transaction_truncate <= 1'b0;
+            transaction_wrap <= 1'b0;
             transaction_version <= '0;
             result_version <= '0;
             for (result_idx = 0; result_idx < 8; result_idx = result_idx + 1) begin
@@ -288,6 +302,8 @@ module precoder_core #(
                         transaction_bank <= active_bank_o;
                         transaction_mode_8x8 <= mode_8x8_i;
                         transaction_format_12 <= format_12_i;
+                        transaction_truncate <= truncate_i;
+                        transaction_wrap <= wrap_i;
                         transaction_version <= active_version_o;
                         symbol_write_idx <= 3'd1;
                         state <= ST_LOAD;
