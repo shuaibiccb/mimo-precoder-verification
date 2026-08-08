@@ -318,6 +318,7 @@ package precoder_uvm_pkg;
         bit [7:0] pending_version;
         real error_energy;
         real reference_energy;
+        real last_evm;
         real max_evm;
         int checked_vectors;
         int busy_commit_count;
@@ -331,7 +332,7 @@ package precoder_uvm_pkg;
             super.build_phase(phase);
             input_index=0; output_index=0; vector_active=0;
             active_bank=0; active_version=0; pending=0;
-            error_energy=0.0; reference_energy=0.0; max_evm=0.0;
+            error_energy=0.0; reference_energy=0.0; last_evm=0.0; max_evm=0.0;
             checked_vectors=0; busy_commit_count=0; saturated_output_count=0;
             for (bank=0; bank<2; bank=bank+1)
                 for (row=0; row<4; row=row+1)
@@ -438,6 +439,7 @@ package precoder_uvm_pkg;
             if (output_index == 4) begin
                 checked_vectors++;
                 vector_evm=(reference_energy==0.0)?0.0:$sqrt(error_energy/reference_energy);
+                last_evm=vector_evm;
                 if (vector_evm > max_evm) max_evm=vector_evm;
                 `uvm_info("REF_EVM",$sformatf("vector %0d fixed reference PASS, EVM=%0.6e",checked_vectors,vector_evm),UVM_LOW);
                 output_index=0; vector_active=0; error_energy=0.0; reference_energy=0.0;
@@ -908,6 +910,227 @@ package precoder_uvm_pkg;
             if (env.scoreboard.saturated_output_count != 3)
                 `uvm_fatal("NUMERIC_WORST",$sformatf("expected 3 saturated outputs, got %0d",env.scoreboard.saturated_output_count))
             `uvm_info("PHASE10","worst numeric case matched 4 bit-exact RTL outputs and saturation flags",UVM_LOW)
+            phase.drop_objection(this);
+        endtask
+    endclass
+
+    class precoder_python_golden_test extends uvm_test;
+        `uvm_component_utils(precoder_python_golden_test)
+        precoder_env env;
+        string golden_file;
+        int dataset_index;
+        int requested_vectors;
+        int signed matrix_real[0:1][0:15];
+        int signed matrix_imag[0:1][0:15];
+        int signed sample_real[0:3];
+        int signed sample_imag[0:3];
+        int signed python_expected_real[0:3];
+        int signed python_expected_imag[0:3];
+        int python_expected_saturated[0:3];
+        int vector_record_index;
+        int vector_record_bank;
+        int vector_record_version;
+        real python_implementation_evm;
+        real python_end_to_end_evm;
+        int python_checked_vectors;
+        int python_mismatch_count;
+        real max_python_implementation_evm;
+        real max_python_end_to_end_evm;
+
+        function new(string name, uvm_component parent); super.new(name,parent); endfunction
+        function void build_phase(uvm_phase phase);
+            super.build_phase(phase);
+            if (!$value$plusargs("GOLDEN_FILE=%s",golden_file))
+                golden_file="tb/vectors/stage12_golden_vectors.txt";
+            if (!$value$plusargs("DATASET_INDEX=%d",dataset_index)) dataset_index=0;
+            if (!$value$plusargs("VECTORS=%d",requested_vectors)) requested_vectors=50;
+            uvm_config_db#(int)::set(this,"env.stream_in_agent.driver","gap_max",3);
+            uvm_config_db#(int)::set(this,"env.stream_out_agent.driver","stall_percent",35);
+            uvm_config_db#(int)::set(this,"env.lite_agent.driver","response_stall_max",3);
+            env=precoder_env::type_id::create("env",this);
+        endfunction
+
+        task read_bank(input integer fd, input integer expected_bank);
+            string marker;
+            integer parsed_bank, index, rc;
+            rc=$fscanf(fd,"%s %d",marker,parsed_bank);
+            if ((rc != 2) || (marker != "BANK") || (parsed_bank != expected_bank))
+                `uvm_fatal("PY_FORMAT",$sformatf("expected BANK %0d, marker=%s bank=%0d rc=%0d",expected_bank,marker,parsed_bank,rc))
+            for (index=0;index<16;index=index+1) begin
+                rc=$fscanf(fd,"%d %d",matrix_real[parsed_bank][index],matrix_imag[parsed_bank][index]);
+                if (rc != 2)
+                    `uvm_fatal("PY_FORMAT",$sformatf("Bank%0d coefficient %0d is incomplete",parsed_bank,index))
+            end
+        endtask
+
+        task read_vector(input integer fd);
+            string marker;
+            integer index, rc;
+            rc=$fscanf(fd,"%s %d %d %d",marker,vector_record_index,
+                       vector_record_bank,vector_record_version);
+            if ((rc != 4) || (marker != "VECTOR"))
+                `uvm_fatal("PY_FORMAT",$sformatf("expected VECTOR record, marker=%s rc=%0d",marker,rc))
+            for (index=0;index<4;index=index+1) begin
+                rc=$fscanf(fd,"%d %d",sample_real[index],sample_imag[index]);
+                if (rc != 2)
+                    `uvm_fatal("PY_FORMAT",$sformatf("vector %0d input %0d is incomplete",vector_record_index,index))
+            end
+            for (index=0;index<4;index=index+1) begin
+                rc=$fscanf(fd,"%d %d %d",python_expected_real[index],
+                           python_expected_imag[index],python_expected_saturated[index]);
+                if (rc != 3)
+                    `uvm_fatal("PY_FORMAT",$sformatf("vector %0d output %0d is incomplete",vector_record_index,index))
+            end
+            rc=$fscanf(fd,"%f %f",python_implementation_evm,python_end_to_end_evm);
+            if (rc != 2)
+                `uvm_fatal("PY_FORMAT",$sformatf("vector %0d EVM fields are incomplete",vector_record_index))
+        endtask
+
+        task program_python_bank(input integer bank);
+            programmable_matrix_sequence cfg;
+            integer index;
+            cfg=programmable_matrix_sequence::type_id::create($sformatf("python_bank%0d",bank));
+            cfg.bank=bank[0];
+            for (index=0;index<16;index=index+1) begin
+                cfg.coeff_real[index]=matrix_real[bank][index];
+                cfg.coeff_imag[index]=matrix_imag[bank][index];
+            end
+            cfg.start(env.lite_agent.sequencer);
+        endtask
+
+        task send_python_vector();
+            programmable_vector_sequence seq;
+            integer index;
+            seq=programmable_vector_sequence::type_id::create(
+                $sformatf("python_vector_%0d",vector_record_index));
+            for (index=0;index<4;index=index+1) begin
+                seq.sample_real[index]=sample_real[index];
+                seq.sample_imag[index]=sample_imag[index];
+            end
+            seq.start(env.stream_in_agent.sequencer);
+        endtask
+
+        task commit_python_bank1(input integer version);
+            matrix_commit_sequence commit;
+            commit=matrix_commit_sequence::type_id::create("python_commit_bank1");
+            commit.bank=1; commit.version=version[7:0];
+            commit.start(env.lite_agent.sequencer);
+        endtask
+
+        task check_python_outputs();
+            axi_stream_out_item out;
+            integer antenna, timeout;
+            real evm_delta;
+            for (antenna=0;antenna<4;antenna=antenna+1) begin
+                env.output_fifo.get(out);
+                if (out.antenna !== antenna[1:0]) begin
+                    python_mismatch_count++;
+                    `uvm_error("PY_ANTENNA",$sformatf("vector %0d expected antenna %0d got %0d",vector_record_index,antenna,out.antenna))
+                end
+                if (out.last !== (antenna == 3)) begin
+                    python_mismatch_count++;
+                    `uvm_error("PY_LAST",$sformatf("vector %0d antenna %0d TLAST=%0d",vector_record_index,antenna,out.last))
+                end
+                if (($signed(out.real_part) != python_expected_real[antenna])
+                        || ($signed(out.imag_part) != python_expected_imag[antenna])) begin
+                    python_mismatch_count++;
+                    `uvm_error("PY_FIXED",$sformatf("vector %0d antenna %0d Python expected %0d+%0dj got %0d+%0dj",vector_record_index,antenna,python_expected_real[antenna],python_expected_imag[antenna],out.real_part,out.imag_part))
+                end
+                if (out.saturated !== python_expected_saturated[antenna][0]) begin
+                    python_mismatch_count++;
+                    `uvm_error("PY_SAT",$sformatf("vector %0d antenna %0d Python saturation=%0d got %0d",vector_record_index,antenna,python_expected_saturated[antenna],out.saturated))
+                end
+                if (out.version !== vector_record_version[7:0]) begin
+                    python_mismatch_count++;
+                    `uvm_error("PY_VERSION",$sformatf("vector %0d Python version=%0d got %0d",vector_record_index,vector_record_version,out.version))
+                end
+            end
+
+            timeout=0;
+            while ((env.scoreboard.checked_vectors < (python_checked_vectors+1))
+                    && (timeout < 1000)) begin
+                @(posedge env.lite_agent.vif.aclk); timeout++;
+            end
+            if (env.scoreboard.checked_vectors != (python_checked_vectors+1))
+                `uvm_fatal("PY_SCOREBOARD",$sformatf("expected scoreboard vector %0d got %0d",python_checked_vectors+1,env.scoreboard.checked_vectors))
+            evm_delta=env.scoreboard.last_evm-python_implementation_evm;
+            if (evm_delta < 0.0) evm_delta=-evm_delta;
+            if (evm_delta > 1.0e-9) begin
+                python_mismatch_count++;
+                `uvm_error("PY_EVM",$sformatf("vector %0d Python implementation EVM=%0.12e scoreboard=%0.12e delta=%0.12e",vector_record_index,python_implementation_evm,env.scoreboard.last_evm,evm_delta))
+            end
+            if (python_implementation_evm > max_python_implementation_evm)
+                max_python_implementation_evm=python_implementation_evm;
+            if (python_end_to_end_evm > max_python_end_to_end_evm)
+                max_python_end_to_end_evm=python_end_to_end_evm;
+            python_checked_vectors++;
+        endtask
+
+        task run_phase(uvm_phase phase);
+            integer fd, rc, format_version, block_count, vectors_per_block;
+            integer base_seed, block_loop, parsed_block, data_seed, qam_order;
+            integer bank1_version, switch_index, vector_loop;
+            integer selected_data_seed, selected_qam, selected_version;
+            string marker;
+            bit found;
+
+            phase.raise_objection(this);
+            wait(env.lite_agent.vif.aresetn); repeat(2) @(posedge env.lite_agent.vif.aclk);
+            fd=$fopen(golden_file,"r");
+            if (fd == 0)
+                `uvm_fatal("PY_FILE",$sformatf("cannot open Python golden file %s",golden_file))
+            rc=$fscanf(fd,"%s %d %d %d %d",marker,format_version,block_count,
+                       vectors_per_block,base_seed);
+            if ((rc != 5) || (marker != "STAGE12") || (format_version != 1))
+                `uvm_fatal("PY_FORMAT",$sformatf("bad STAGE12 header in %s",golden_file))
+            if ((dataset_index < 0) || (dataset_index >= block_count))
+                `uvm_fatal("PY_DATASET",$sformatf("DATASET_INDEX=%0d outside 0..%0d",dataset_index,block_count-1))
+            if (requested_vectors != vectors_per_block)
+                `uvm_fatal("PY_VECTORS",$sformatf("VECTORS=%0d but file contains %0d per block",requested_vectors,vectors_per_block))
+
+            found=0; python_checked_vectors=0; python_mismatch_count=0;
+            max_python_implementation_evm=0.0; max_python_end_to_end_evm=0.0;
+            for (block_loop=0;block_loop<block_count;block_loop=block_loop+1) begin
+                rc=$fscanf(fd,"%s %d %d %d %d %d",marker,parsed_block,data_seed,
+                           qam_order,bank1_version,switch_index);
+                if ((rc != 6) || (marker != "BLOCK") || (parsed_block != block_loop))
+                    `uvm_fatal("PY_FORMAT",$sformatf("bad BLOCK record at index %0d",block_loop))
+                read_bank(fd,0); read_bank(fd,1);
+                if (parsed_block == dataset_index) begin
+                    selected_data_seed=data_seed; selected_qam=qam_order;
+                    selected_version=bank1_version;
+                    program_python_bank(0); program_python_bank(1);
+                end
+
+                for (vector_loop=0;vector_loop<vectors_per_block;vector_loop=vector_loop+1) begin
+                    read_vector(fd);
+                    if (parsed_block == dataset_index) begin
+                        if ((vector_record_index != vector_loop)
+                                || (vector_record_bank != (vector_loop >= switch_index))
+                                || (vector_record_version != ((vector_loop >= switch_index) ? bank1_version : 0)))
+                            `uvm_fatal("PY_FORMAT",$sformatf("vector %0d has inconsistent index/bank/version",vector_loop))
+                        send_python_vector();
+                        if (vector_loop == (switch_index-1))
+                            commit_python_bank1(bank1_version);
+                        check_python_outputs();
+                    end
+                end
+                rc=$fscanf(fd,"%s",marker);
+                if ((rc != 1) || (marker != "END_BLOCK"))
+                    `uvm_fatal("PY_FORMAT",$sformatf("missing END_BLOCK for block %0d",block_loop))
+                if (parsed_block == dataset_index) begin found=1; break; end
+            end
+            $fclose(fd);
+
+            if (!found) `uvm_fatal("PY_DATASET","selected Python dataset was not found")
+            if ((python_checked_vectors != vectors_per_block)
+                    || (env.scoreboard.checked_vectors != vectors_per_block))
+                `uvm_fatal("PY_COUNT",$sformatf("expected %0d vectors, Python=%0d scoreboard=%0d",vectors_per_block,python_checked_vectors,env.scoreboard.checked_vectors))
+            if (env.scoreboard.busy_commit_count != 1)
+                `uvm_fatal("PY_COMMIT",$sformatf("expected one busy Bank commit got %0d",env.scoreboard.busy_commit_count))
+            if (python_mismatch_count != 0)
+                `uvm_fatal("PY_MISMATCH",$sformatf("observed %0d Python golden mismatches",python_mismatch_count))
+            `uvm_info("PHASE12",$sformatf("block=%0d data_seed=%0d qam=%0d vectors=%0d python_checked=%0d busy_commits=%0d bank1_version=%0d max_impl_evm=%0.6e max_end_to_end_evm=%0.6e",dataset_index,selected_data_seed,selected_qam,vectors_per_block,python_checked_vectors,env.scoreboard.busy_commit_count,selected_version,max_python_implementation_evm,max_python_end_to_end_evm),UVM_LOW)
             phase.drop_objection(this);
         endtask
     endclass

@@ -219,3 +219,7 @@ SVA已正式接入UVM随机回归。AXI checker检查流接口反压、输出事
 ## new第11阶段：性能预测模型与性能计数器闭环验证
 
 UVM新增独立性能monitor，逐周期预测并检查周期、输入/输出向量、输入/输出阻塞、饱和、配置写和commit共8个硬件计数器，同时核对AXI-Lite读回值。当前微架构满足“单向量延迟 = 9个固定周期 + 输出反压周期数”；无反压时持续吞吐率为625万向量/秒（100 MHz）。20个seed共240个向量覆盖无反压、随机反压、混合反压和8周期长阻塞，计数器与延迟预测不一致均为0，详见 `docs/stage11_performance_verification.md`。
+
+## new第12阶段：NumPy黄金模型与UVM端到端联动
+
+本地NumPy生成20个数据块、共1000个QPSK/16QAM/64QAM黄金向量，并记录Q1.14位精确输出、饱和标志、实现EVM、端到端EVM和SHA-256清单。服务器不运行Python，只由UVM读取ASCII黄金文件并逐拍比较RTL输出，同时交叉检查已有SystemVerilog scoreboard。正式20-seed回归通过，`UVM_ERROR/UVM_FATAL`均为0，详见 `docs/stage12_python_golden_regression.md`。

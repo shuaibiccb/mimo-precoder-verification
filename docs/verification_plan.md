@@ -125,3 +125,7 @@ NumPy分析器批量执行Q1.14位精确运算并分别统计输入量化、舍�
 ## new第11阶段 性能预测模型与计数器闭环验证
 
 UVM性能monitor对周期、输入/输出向量、输入/输出阻塞、饱和、配置写和commit计数建立独立周期模型，逐周期比较RTL内部计数器，并在AXI-Lite读请求握手时保存期望值以核对软件可见读数。每个事务的预测规则为“9个固定周期 + 该事务输出反压周期数”。20个seed共240个向量覆盖四种反压配置，全部计数器和延迟预测精确一致；无反压时延迟固定9周期，100 MHz持续吞吐率为625万向量/秒。详见 `docs/stage11_performance_verification.md`。
+
+## new第12阶段 NumPy黄金模型与UVM端到端联动
+
+本地NumPy生成可追溯的ASCII黄金向量和JSON清单，服务器通过VCS/UVM读取文件，不依赖Python 3.10或NumPy。每个数据块覆盖一套QPSK/16QAM/64QAM输入、两个4x4矩阵、Bank0到Bank1忙时切换和50个向量；20个数据块共1000个向量。UVM逐拍比较数值、饱和、`TLAST`、天线编号、矩阵版本和实现EVM，正式回归全部通过。详见 `docs/stage12_python_golden_regression.md`。

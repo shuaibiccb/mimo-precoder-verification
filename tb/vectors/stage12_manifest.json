@@ -1,0 +1,238 @@
+{
+  "base_seed": 20260808,
+  "block_count": 20,
+  "blocks": [
+    {
+      "bank1_version": 65,
+      "block_index": 0,
+      "data_seed": 20260808,
+      "end_to_end_evm_max": 0.00024353369356051082,
+      "implementation_evm_max": 0.0001518193506908865,
+      "qam_order": 4,
+      "saturated_outputs": 0,
+      "switch_index": 25,
+      "vectors": 50
+    },
+    {
+      "bank1_version": 102,
+      "block_index": 1,
+      "data_seed": 20260809,
+      "end_to_end_evm_max": 0.0003491493877944388,
+      "implementation_evm_max": 0.00011845868162014655,
+      "qam_order": 16,
+      "saturated_outputs": 0,
+      "switch_index": 25,
+      "vectors": 50
+    },
+    {
+      "bank1_version": 139,
+      "block_index": 2,
+      "data_seed": 20260810,
+      "end_to_end_evm_max": 0.0003215105473451062,
+      "implementation_evm_max": 0.0001548624097152808,
+      "qam_order": 64,
+      "saturated_outputs": 0,
+      "switch_index": 25,
+      "vectors": 50
+    },
+    {
+      "bank1_version": 176,
+      "block_index": 3,
+      "data_seed": 20260811,
+      "end_to_end_evm_max": 0.0003350746742461719,
+      "implementation_evm_max": 0.0001623118595634646,
+      "qam_order": 4,
+      "saturated_outputs": 0,
+      "switch_index": 25,
+      "vectors": 50
+    },
+    {
+      "bank1_version": 213,
+      "block_index": 4,
+      "data_seed": 20260812,
+      "end_to_end_evm_max": 0.0003817339700524209,
+      "implementation_evm_max": 0.00010971987960604978,
+      "qam_order": 16,
+      "saturated_outputs": 0,
+      "switch_index": 25,
+      "vectors": 50
+    },
+    {
+      "bank1_version": 250,
+      "block_index": 5,
+      "data_seed": 20260813,
+      "end_to_end_evm_max": 0.0004174858373336937,
+      "implementation_evm_max": 0.0001617710033200247,
+      "qam_order": 64,
+      "saturated_outputs": 0,
+      "switch_index": 25,
+      "vectors": 50
+    },
+    {
+      "bank1_version": 32,
+      "block_index": 6,
+      "data_seed": 20260814,
+      "end_to_end_evm_max": 0.00030120849150324833,
+      "implementation_evm_max": 0.00012727074730852964,
+      "qam_order": 4,
+      "saturated_outputs": 0,
+      "switch_index": 25,
+      "vectors": 50
+    },
+    {
+      "bank1_version": 69,
+      "block_index": 7,
+      "data_seed": 20260815,
+      "end_to_end_evm_max": 0.0005985687882502247,
+      "implementation_evm_max": 0.00020032802859037513,
+      "qam_order": 16,
+      "saturated_outputs": 0,
+      "switch_index": 25,
+      "vectors": 50
+    },
+    {
+      "bank1_version": 106,
+      "block_index": 8,
+      "data_seed": 20260816,
+      "end_to_end_evm_max": 0.00024407943694298176,
+      "implementation_evm_max": 0.00010134296112665028,
+      "qam_order": 64,
+      "saturated_outputs": 0,
+      "switch_index": 25,
+      "vectors": 50
+    },
+    {
+      "bank1_version": 143,
+      "block_index": 9,
+      "data_seed": 20260817,
+      "end_to_end_evm_max": 0.00030291954157963803,
+      "implementation_evm_max": 0.00013350115088146754,
+      "qam_order": 4,
+      "saturated_outputs": 0,
+      "switch_index": 25,
+      "vectors": 50
+    },
+    {
+      "bank1_version": 180,
+      "block_index": 10,
+      "data_seed": 20260818,
+      "end_to_end_evm_max": 0.00023694225375819073,
+      "implementation_evm_max": 0.00013983745870487063,
+      "qam_order": 16,
+      "saturated_outputs": 0,
+      "switch_index": 25,
+      "vectors": 50
+    },
+    {
+      "bank1_version": 217,
+      "block_index": 11,
+      "data_seed": 20260819,
+      "end_to_end_evm_max": 0.00029021072123144783,
+      "implementation_evm_max": 0.00017518301627899365,
+      "qam_order": 64,
+      "saturated_outputs": 0,
+      "switch_index": 25,
+      "vectors": 50
+    },
+    {
+      "bank1_version": 254,
+      "block_index": 12,
+      "data_seed": 20260820,
+      "end_to_end_evm_max": 0.0002516921585067597,
+      "implementation_evm_max": 8.753025758651147e-05,
+      "qam_order": 4,
+      "saturated_outputs": 0,
+      "switch_index": 25,
+      "vectors": 50
+    },
+    {
+      "bank1_version": 36,
+      "block_index": 13,
+      "data_seed": 20260821,
+      "end_to_end_evm_max": 0.00022659548655723518,
+      "implementation_evm_max": 0.0001124111434734764,
+      "qam_order": 16,
+      "saturated_outputs": 0,
+      "switch_index": 25,
+      "vectors": 50
+    },
+    {
+      "bank1_version": 73,
+      "block_index": 14,
+      "data_seed": 20260822,
+      "end_to_end_evm_max": 0.00022217419301013896,
+      "implementation_evm_max": 0.00011367156891206172,
+      "qam_order": 64,
+      "saturated_outputs": 0,
+      "switch_index": 25,
+      "vectors": 50
+    },
+    {
+      "bank1_version": 110,
+      "block_index": 15,
+      "data_seed": 20260823,
+      "end_to_end_evm_max": 0.00022748090376276762,
+      "implementation_evm_max": 9.692612748112078e-05,
+      "qam_order": 4,
+      "saturated_outputs": 0,
+      "switch_index": 25,
+      "vectors": 50
+    },
+    {
+      "bank1_version": 147,
+      "block_index": 16,
+      "data_seed": 20260824,
+      "end_to_end_evm_max": 0.00038749438448556936,
+      "implementation_evm_max": 0.0001487248598701096,
+      "qam_order": 16,
+      "saturated_outputs": 0,
+      "switch_index": 25,
+      "vectors": 50
+    },
+    {
+      "bank1_version": 184,
+      "block_index": 17,
+      "data_seed": 20260825,
+      "end_to_end_evm_max": 0.00035781647526281836,
+      "implementation_evm_max": 0.0001114815668909925,
+      "qam_order": 64,
+      "saturated_outputs": 0,
+      "switch_index": 25,
+      "vectors": 50
+    },
+    {
+      "bank1_version": 221,
+      "block_index": 18,
+      "data_seed": 20260826,
+      "end_to_end_evm_max": 0.00041217739969946597,
+      "implementation_evm_max": 0.00011093221552491366,
+      "qam_order": 4,
+      "saturated_outputs": 0,
+      "switch_index": 25,
+      "vectors": 50
+    },
+    {
+      "bank1_version": 3,
+      "block_index": 19,
+      "data_seed": 20260827,
+      "end_to_end_evm_max": 0.00020512038014728883,
+      "implementation_evm_max": 8.962285474426304e-05,
+      "qam_order": 16,
+      "saturated_outputs": 0,
+      "switch_index": 25,
+      "vectors": 50
+    }
+  ],
+  "format_version": 1,
+  "golden_sha256": "ec6c58eab59e592276ff2fe59aa8f41445698fd27b4862c32c25020aaddde7f8",
+  "matrix_frobenius_norm": 0.9,
+  "numpy_version": "2.2.4",
+  "qam_vector_counts": {
+    "16": 350,
+    "4": 350,
+    "64": 300
+  },
+  "total_saturated_outputs": 0,
+  "total_vectors": 1000,
+  "vectors_per_block": 50
+}

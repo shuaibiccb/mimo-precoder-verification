@@ -4,7 +4,7 @@
 
 本阶段为 `axi_precoder_wrapper` 建立最小可运行的UVM 1.2验证平台。重点是形成可复用的transaction、sequencer、driver、monitor、agent、environment和test层次，并完成第一条端到端UVM用例。
 
-当前平台已加入通用位精确scoreboard、双Bank/版本跟踪、浮点EVM计算和多seed随机回归。Python/DPI模型联动可在后续扩展中继续增强。
+当前平台已加入通用位精确scoreboard、双Bank/版本跟踪、浮点EVM计算和多seed随机回归。new第12阶段增加了本地NumPy黄金文件与UVM端到端联动；服务器只读取ASCII向量，不需要安装Python或NumPy。
 
 ## 文件结构
 
@@ -78,6 +78,18 @@ uvm_test_top (precoder_base_test)
 ```bash
 bash sim/run_uvm.sh
 ```
+
+## new第12阶段Python黄金向量回归
+
+本地使用 `scripts/generate_uvm_golden_vectors.py` 生成 `tb/vectors/stage12_golden_vectors.txt` 和 `tb/vectors/stage12_manifest.json`。服务器上的 `precoder_python_golden_test` 读取指定数据块，逐拍比较Python期望值，并核对实现EVM、矩阵版本和忙时Bank切换。
+
+服务器完整回归使用：
+
+```bash
+RUNS=20 VECTORS=50 BASE_SEED=20260808 bash sim/run_python_golden_regression.sh
+```
+
+回归报告位于 `build/vcs/uvm/python_golden/`。
 
 通过标志包括：
 
