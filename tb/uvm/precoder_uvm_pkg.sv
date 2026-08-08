@@ -275,9 +275,11 @@ package precoder_uvm_pkg;
         `uvm_component_utils(axi_stream_out_ready_driver)
         virtual axi_stream_if vif;
         int stall_percent;
+        int periodic_stall_every;
+        int stall_burst_cycles;
         function new(string name, uvm_component parent); super.new(name,parent); endfunction
-        function void build_phase(uvm_phase phase); super.build_phase(phase); if (!uvm_config_db#(virtual axi_stream_if)::get(this,"","vif",vif)) `uvm_fatal("NOVIF","stream output vif missing"); if (!uvm_config_db#(int)::get(this,"","stall_percent",stall_percent)) stall_percent=0; endfunction
-        task run_phase(uvm_phase phase); vif.tready <= 0; wait(vif.aresetn); forever begin @(negedge vif.aclk); vif.tready <= ($urandom_range(99) >= stall_percent); end endtask
+        function void build_phase(uvm_phase phase); super.build_phase(phase); if (!uvm_config_db#(virtual axi_stream_if)::get(this,"","vif",vif)) `uvm_fatal("NOVIF","stream output vif missing"); if (!uvm_config_db#(int)::get(this,"","stall_percent",stall_percent)) stall_percent=0; if (!uvm_config_db#(int)::get(this,"","periodic_stall_every",periodic_stall_every)) periodic_stall_every=0; if (!uvm_config_db#(int)::get(this,"","stall_burst_cycles",stall_burst_cycles)) stall_burst_cycles=0; endfunction
+        task run_phase(uvm_phase phase); integer cycle, burst_remaining; bit previous_valid; cycle=0; burst_remaining=0; previous_valid=0; vif.tready <= 0; wait(vif.aresetn); forever begin @(negedge vif.aclk); cycle++; if ((burst_remaining == 0) && (stall_burst_cycles > 0) && vif.tvalid && !previous_valid) burst_remaining=stall_burst_cycles; if (burst_remaining > 0) begin vif.tready <= 0; burst_remaining--; end else if ((periodic_stall_every > 0) && ((cycle % periodic_stall_every) == 0)) vif.tready <= 0; else vif.tready <= ($urandom_range(99) >= stall_percent); previous_valid=vif.tvalid; end endtask
     endclass
 
     class axi_stream_out_agent extends uvm_agent;
@@ -446,13 +448,179 @@ package precoder_uvm_pkg;
         endfunction
     endclass
 
+    class precoder_performance_monitor extends uvm_component;
+        `uvm_component_utils(precoder_performance_monitor)
+        virtual performance_if vif;
+        longint unsigned expected_cycle_count;
+        longint unsigned expected_input_vector_count;
+        longint unsigned expected_output_vector_count;
+        longint unsigned expected_input_stall_count;
+        longint unsigned expected_output_stall_count;
+        longint unsigned expected_saturation_count;
+        longint unsigned expected_cfg_write_count;
+        longint unsigned expected_commit_count;
+        longint unsigned wall_cycle;
+        longint unsigned accept_cycles[$];
+        longint unsigned active_output_stalls;
+        longint unsigned first_accept_cycle;
+        longint unsigned first_complete_cycle;
+        longint unsigned last_complete_cycle;
+        longint unsigned latency_sum;
+        longint unsigned min_latency;
+        longint unsigned max_latency;
+        int completed_vectors;
+        int clear_count;
+        int counter_mismatch_count;
+        int latency_mismatch_count;
+        bit read_pending;
+        bit [31:0] read_address;
+        bit [31:0] read_expected;
+        int checked_counter_reads;
+
+        function new(string name, uvm_component parent); super.new(name,parent); endfunction
+        function void build_phase(uvm_phase phase);
+            super.build_phase(phase);
+            if (!uvm_config_db#(virtual performance_if)::get(this,"","vif",vif))
+                `uvm_fatal("NOVIF","performance monitor virtual interface not set")
+            reset_model();
+            wall_cycle=0; clear_count=0;
+            counter_mismatch_count=0; latency_mismatch_count=0;
+        endfunction
+        function void reset_model();
+            expected_cycle_count=0; expected_input_vector_count=0;
+            expected_output_vector_count=0; expected_input_stall_count=0;
+            expected_output_stall_count=0; expected_saturation_count=0;
+            expected_cfg_write_count=0; expected_commit_count=0;
+            accept_cycles.delete(); active_output_stalls=0;
+            first_accept_cycle=0; first_complete_cycle=0; last_complete_cycle=0;
+            latency_sum=0; min_latency='1; max_latency=0; completed_vectors=0;
+            read_pending=0; read_address=0; read_expected=0;
+            checked_counter_reads=0;
+        endfunction
+        function automatic bit [31:0] expected_for_address(input bit [31:0] address);
+            case (address)
+                32'h20: return expected_cycle_count[31:0];
+                32'h24: return expected_input_vector_count[31:0];
+                32'h28: return expected_output_vector_count[31:0];
+                32'h2c: return expected_input_stall_count[31:0];
+                32'h30: return expected_output_stall_count[31:0];
+                32'h34: return expected_saturation_count[31:0];
+                32'h38: return expected_cfg_write_count[31:0];
+                32'h3c: return expected_commit_count[31:0];
+                default: return 32'd0;
+            endcase
+        endfunction
+        function void compare_counter(input string name,
+                                      input bit [31:0] actual,
+                                      input longint unsigned expected);
+            if (actual !== expected[31:0]) begin
+                counter_mismatch_count++;
+                `uvm_error("PERF_COUNTER",$sformatf("%s expected %0d got %0d",name,expected[31:0],actual))
+            end
+        endfunction
+        task run_phase(uvm_phase phase);
+            bit reset_sample, clear_sample;
+            bit input_vector_sample, output_vector_sample;
+            bit input_stall_sample, output_stall_sample;
+            bit saturation_sample, cfg_write_sample, commit_sample;
+            longint unsigned accept_cycle, latency, predicted_latency;
+            forever begin
+                @(posedge vif.aclk);
+                reset_sample=!vif.aresetn; clear_sample=vif.clear_counters;
+                input_vector_sample=vif.input_vector;
+                output_vector_sample=vif.output_vector;
+                input_stall_sample=vif.input_stall;
+                output_stall_sample=vif.output_stall;
+                saturation_sample=vif.saturation;
+                cfg_write_sample=vif.cfg_write;
+                commit_sample=vif.commit;
+
+                if (!reset_sample) begin
+                    wall_cycle++;
+                    if (!clear_sample) begin
+                        if (input_vector_sample) begin
+                            accept_cycles.push_back(wall_cycle);
+                            if (first_accept_cycle == 0) first_accept_cycle=wall_cycle;
+                            active_output_stalls=0;
+                        end
+                        if (output_stall_sample && (accept_cycles.size() != 0))
+                            active_output_stalls++;
+                        if (output_vector_sample) begin
+                            if (accept_cycles.size() == 0) begin
+                                latency_mismatch_count++;
+                                `uvm_error("PERF_LATENCY","output vector completed without accepted input")
+                            end else begin
+                                accept_cycle=accept_cycles.pop_front();
+                                latency=wall_cycle-accept_cycle;
+                                predicted_latency=9+active_output_stalls;
+                                if (latency != predicted_latency) begin
+                                    latency_mismatch_count++;
+                                    `uvm_error("PERF_LATENCY",$sformatf("predicted %0d cycles got %0d",predicted_latency,latency))
+                                end
+                                latency_sum+=latency;
+                                if (latency < min_latency) min_latency=latency;
+                                if (latency > max_latency) max_latency=latency;
+                                completed_vectors++;
+                                if (first_complete_cycle == 0) first_complete_cycle=wall_cycle;
+                                last_complete_cycle=wall_cycle;
+                                active_output_stalls=0;
+                            end
+                        end
+                    end
+
+                    if (vif.arvalid && vif.arready
+                            && (vif.araddr >= 32'h20) && (vif.araddr <= 32'h3c)) begin
+                        if (read_pending)
+                            `uvm_error("PERF_READ","new counter read accepted before prior response")
+                        read_pending=1; read_address=vif.araddr;
+                        read_expected=expected_for_address(vif.araddr);
+                    end
+                    if (vif.rvalid && vif.rready && read_pending) begin
+                        if ((vif.rresp != 2'b00) || (vif.rdata !== read_expected)) begin
+                            counter_mismatch_count++;
+                            `uvm_error("PERF_READ",$sformatf("address 0x%08x expected %0d got %0d response %b",read_address,read_expected,vif.rdata,vif.rresp))
+                        end
+                        checked_counter_reads++;
+                        read_pending=0;
+                    end
+                end
+
+                @(negedge vif.aclk);
+                if (reset_sample || clear_sample) begin
+                    reset_model();
+                    if (clear_sample) clear_count++;
+                end else begin
+                    expected_cycle_count++;
+                    if (input_vector_sample) expected_input_vector_count++;
+                    if (output_vector_sample) expected_output_vector_count++;
+                    if (input_stall_sample) expected_input_stall_count++;
+                    if (output_stall_sample) expected_output_stall_count++;
+                    if (saturation_sample) expected_saturation_count++;
+                    if (cfg_write_sample) expected_cfg_write_count++;
+                    if (commit_sample) expected_commit_count++;
+                end
+                if (!reset_sample) begin
+                    compare_counter("cycle_count",vif.cycle_count,expected_cycle_count);
+                    compare_counter("input_vector_count",vif.input_vector_count,expected_input_vector_count);
+                    compare_counter("output_vector_count",vif.output_vector_count,expected_output_vector_count);
+                    compare_counter("input_stall_count",vif.input_stall_count,expected_input_stall_count);
+                    compare_counter("output_stall_count",vif.output_stall_count,expected_output_stall_count);
+                    compare_counter("saturation_count",vif.saturation_count,expected_saturation_count);
+                    compare_counter("cfg_write_count",vif.cfg_write_count,expected_cfg_write_count);
+                    compare_counter("commit_count",vif.commit_count,expected_commit_count);
+                end
+            end
+        endtask
+    endclass
+
     class precoder_env extends uvm_env;
         `uvm_component_utils(precoder_env)
         axi_lite_agent lite_agent; axi_stream_in_agent stream_in_agent; axi_stream_out_agent stream_out_agent;
         uvm_tlm_analysis_fifo#(axi_stream_out_item) output_fifo;
         precoder_scoreboard scoreboard;
+        precoder_performance_monitor performance_monitor;
         function new(string name, uvm_component parent); super.new(name,parent); endfunction
-        function void build_phase(uvm_phase phase); super.build_phase(phase); lite_agent=axi_lite_agent::type_id::create("lite_agent",this); stream_in_agent=axi_stream_in_agent::type_id::create("stream_in_agent",this); stream_out_agent=axi_stream_out_agent::type_id::create("stream_out_agent",this); output_fifo=new("output_fifo",this); scoreboard=precoder_scoreboard::type_id::create("scoreboard",this); endfunction
+        function void build_phase(uvm_phase phase); super.build_phase(phase); lite_agent=axi_lite_agent::type_id::create("lite_agent",this); stream_in_agent=axi_stream_in_agent::type_id::create("stream_in_agent",this); stream_out_agent=axi_stream_out_agent::type_id::create("stream_out_agent",this); output_fifo=new("output_fifo",this); scoreboard=precoder_scoreboard::type_id::create("scoreboard",this); performance_monitor=precoder_performance_monitor::type_id::create("performance_monitor",this); endfunction
         function void connect_phase(uvm_phase phase); stream_out_agent.monitor.ap.connect(output_fifo.analysis_export); stream_in_agent.monitor.ap.connect(scoreboard.input_imp); stream_out_agent.monitor.ap.connect(scoreboard.output_imp); lite_agent.monitor.ap.connect(scoreboard.lite_imp); endfunction
     endclass
 
@@ -526,6 +694,22 @@ package precoder_uvm_pkg;
             tr.is_write=0; tr.addr=addr;
             start_item(tr); finish_item(tr);
             read_data=tr.read_data; response=tr.response;
+        endtask
+    endclass
+
+    class axi_lite_write_sequence extends uvm_sequence#(axi_lite_item);
+        `uvm_object_utils(axi_lite_write_sequence)
+        bit [31:0] addr;
+        bit [31:0] data;
+        bit [3:0] strb=4'hf;
+        bit w_first;
+        bit [1:0] response;
+        function new(string name="axi_lite_write_sequence"); super.new(name); endfunction
+        task body();
+            axi_lite_item tr=axi_lite_item::type_id::create("write");
+            tr.is_write=1; tr.addr=addr; tr.data=data; tr.strb=strb;
+            tr.w_first=w_first; start_item(tr); finish_item(tr);
+            response=tr.response;
         endtask
     endclass
 
@@ -724,6 +908,142 @@ package precoder_uvm_pkg;
             if (env.scoreboard.saturated_output_count != 3)
                 `uvm_fatal("NUMERIC_WORST",$sformatf("expected 3 saturated outputs, got %0d",env.scoreboard.saturated_output_count))
             `uvm_info("PHASE10","worst numeric case matched 4 bit-exact RTL outputs and saturation flags",UVM_LOW)
+            phase.drop_objection(this);
+        endtask
+    endclass
+
+    class precoder_performance_test extends uvm_test;
+        `uvm_component_utils(precoder_performance_test)
+        precoder_env env;
+        int vector_count;
+        int stall_percent;
+        int periodic_stall_every;
+        int stall_burst_cycles;
+        function new(string name, uvm_component parent); super.new(name,parent); endfunction
+        function void build_phase(uvm_phase phase);
+            super.build_phase(phase);
+            if (!$value$plusargs("VECTORS=%d",vector_count)) vector_count=12;
+            if (vector_count < 6) vector_count=6;
+            if (!$value$plusargs("STALL_PERCENT=%d",stall_percent)) stall_percent=35;
+            if (!$value$plusargs("PERIODIC_STALL_EVERY=%d",periodic_stall_every)) periodic_stall_every=3;
+            if (!$value$plusargs("STALL_BURST_CYCLES=%d",stall_burst_cycles)) stall_burst_cycles=0;
+            uvm_config_db#(int)::set(this,"env.stream_in_agent.driver","gap_max",1);
+            uvm_config_db#(int)::set(this,"env.stream_out_agent.driver","stall_percent",stall_percent);
+            uvm_config_db#(int)::set(this,"env.stream_out_agent.driver","periodic_stall_every",periodic_stall_every);
+            uvm_config_db#(int)::set(this,"env.stream_out_agent.driver","stall_burst_cycles",stall_burst_cycles);
+            uvm_config_db#(int)::set(this,"env.lite_agent.driver","response_stall_max",2);
+            env=precoder_env::type_id::create("env",this);
+        endfunction
+        task program_performance_bank(input bit bank);
+            programmable_matrix_sequence cfg;
+            integer i;
+            cfg=programmable_matrix_sequence::type_id::create($sformatf("perf_bank%0d",bank));
+            cfg.bank=bank;
+            for (i=0;i<16;i=i+1) begin
+                cfg.coeff_real[i]=16'sd12288;
+                cfg.coeff_imag[i]=16'sd0;
+            end
+            cfg.start(env.lite_agent.sequencer);
+        endtask
+        task send_performance_vector(input int vector_id);
+            programmable_vector_sequence seq;
+            integer i;
+            seq=programmable_vector_sequence::type_id::create($sformatf("perf_vector%0d",vector_id));
+            for (i=0;i<4;i=i+1) begin
+                seq.sample_real[i]=16'sd16384;
+                seq.sample_imag[i]=16'sd0;
+            end
+            seq.start(env.stream_in_agent.sequencer);
+        endtask
+        task write_register(input bit [31:0] address, input bit [31:0] data);
+            axi_lite_write_sequence write_seq;
+            write_seq=axi_lite_write_sequence::type_id::create($sformatf("write_%08x",address));
+            write_seq.addr=address; write_seq.data=data;
+            write_seq.w_first=$urandom_range(1);
+            write_seq.start(env.lite_agent.sequencer);
+            if (write_seq.response != 2'b00)
+                `uvm_fatal("PERF_WRITE",$sformatf("address 0x%08x response %b",address,write_seq.response))
+        endtask
+        task read_counter(input bit [31:0] address, output bit [31:0] data);
+            axi_lite_read_sequence read_seq;
+            read_seq=axi_lite_read_sequence::type_id::create($sformatf("counter_%08x",address));
+            read_seq.addr=address; read_seq.start(env.lite_agent.sequencer);
+            if (read_seq.response != 2'b00)
+                `uvm_fatal("PERF_READ",$sformatf("address 0x%08x response %b",address,read_seq.response))
+            data=read_seq.read_data;
+        endtask
+        task run_phase(uvm_phase phase);
+            matrix_commit_sequence commit;
+            bit [31:0] cycle_value, input_vectors, output_vectors;
+            bit [31:0] input_stalls, output_stalls, saturations;
+            bit [31:0] cfg_writes, commits;
+            real average_latency, throughput_vectors_per_second;
+            integer i, timeout;
+            phase.raise_objection(this);
+            wait(env.lite_agent.vif.aresetn); repeat(2) @(posedge env.lite_agent.vif.aclk);
+            program_performance_bank(0); program_performance_bank(1);
+
+            write_register(32'h0000_0008,32'h0000_0001);
+            repeat(2) @(posedge env.lite_agent.vif.aclk);
+            // Generate one post-clear configuration event without changing data.
+            write_register(32'h0000_0100,{16'sd12288,16'sd0});
+            commit=matrix_commit_sequence::type_id::create("perf_commit_bank1");
+            commit.bank=1; commit.version=8'h51; commit.start(env.lite_agent.sequencer);
+
+            send_performance_vector(0);
+            commit=matrix_commit_sequence::type_id::create("perf_commit_bank0");
+            commit.bank=0; commit.version=8'ha4; commit.start(env.lite_agent.sequencer);
+            for (i=1;i<vector_count;i=i+1)
+                send_performance_vector(i);
+
+            timeout=0;
+            while ((env.performance_monitor.completed_vectors < vector_count) && (timeout < 10000)) begin
+                @(posedge env.lite_agent.vif.aclk); timeout++;
+            end
+            if (env.performance_monitor.completed_vectors != vector_count)
+                `uvm_fatal("PERF_TIMEOUT",$sformatf("expected %0d completed vectors got %0d",vector_count,env.performance_monitor.completed_vectors))
+            repeat(2) @(posedge env.lite_agent.vif.aclk);
+
+            read_counter(32'h20,cycle_value);
+            read_counter(32'h24,input_vectors);
+            read_counter(32'h28,output_vectors);
+            read_counter(32'h2c,input_stalls);
+            read_counter(32'h30,output_stalls);
+            read_counter(32'h34,saturations);
+            read_counter(32'h38,cfg_writes);
+            read_counter(32'h3c,commits);
+            repeat(2) @(posedge env.lite_agent.vif.aclk);
+
+            if ((input_vectors != vector_count) || (output_vectors != vector_count))
+                `uvm_fatal("PERF_VECTOR_COUNT",$sformatf("expected %0d vectors, input=%0d output=%0d",vector_count,input_vectors,output_vectors))
+            if (input_stalls == 0)
+                `uvm_fatal("PERF_STALL_COUNT","expected nonzero input stalls")
+            if ((stall_percent == 0) && (periodic_stall_every == 0)
+                    && (stall_burst_cycles == 0) && (output_stalls != 0))
+                `uvm_fatal("PERF_STALL_COUNT",$sformatf("ideal profile expected zero output stalls got %0d",output_stalls))
+            if (((stall_percent != 0) || (periodic_stall_every != 0)
+                    || (stall_burst_cycles != 0)) && (output_stalls == 0))
+                `uvm_fatal("PERF_STALL_COUNT","backpressure profile observed no output stalls")
+            if (saturations != 4*vector_count)
+                `uvm_fatal("PERF_SAT_COUNT",$sformatf("expected %0d saturated beats got %0d",4*vector_count,saturations))
+            if ((cfg_writes != 1) || (commits != 2))
+                `uvm_fatal("PERF_CFG_COUNT",$sformatf("expected cfg=1 commit=2 got cfg=%0d commit=%0d",cfg_writes,commits))
+            if ((cycle_value == 0) || (env.performance_monitor.checked_counter_reads != 8))
+                `uvm_fatal("PERF_READ_COUNT",$sformatf("cycle=%0d checked counter reads=%0d",cycle_value,env.performance_monitor.checked_counter_reads))
+            if ((env.performance_monitor.counter_mismatch_count != 0)
+                    || (env.performance_monitor.latency_mismatch_count != 0))
+                `uvm_fatal("PERF_MODEL",$sformatf("counter mismatches=%0d latency mismatches=%0d",env.performance_monitor.counter_mismatch_count,env.performance_monitor.latency_mismatch_count))
+            if ((output_stalls == 0) && ((env.performance_monitor.min_latency != 9)
+                    || (env.performance_monitor.max_latency != 9)))
+                `uvm_fatal("PERF_IDEAL_LATENCY",$sformatf("ideal latency expected 9 cycles, min=%0d max=%0d",env.performance_monitor.min_latency,env.performance_monitor.max_latency))
+
+            average_latency=env.performance_monitor.latency_sum*1.0/vector_count;
+            if (vector_count > 1)
+                throughput_vectors_per_second=(vector_count-1)*100000000.0
+                    /(env.performance_monitor.last_complete_cycle
+                      - env.performance_monitor.first_complete_cycle);
+            else throughput_vectors_per_second=0.0;
+            `uvm_info("PHASE11",$sformatf("vectors=%0d min_latency=%0d avg_latency=%0.3f max_latency=%0d input_stalls=%0d output_stalls=%0d throughput_at_100MHz=%0.3f_vectors_per_s stall_percent=%0d periodic=%0d burst=%0d",vector_count,env.performance_monitor.min_latency,average_latency,env.performance_monitor.max_latency,input_stalls,output_stalls,throughput_vectors_per_second,stall_percent,periodic_stall_every,stall_burst_cycles),UVM_LOW)
             phase.drop_objection(this);
         endtask
     endclass

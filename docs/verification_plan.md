@@ -121,3 +121,7 @@ SVA正式加入UVM编译和随机回归。wrapper checker负责AXI-Stream稳定�
 ## new第10阶段 最坏定点数值场景搜索
 
 NumPy分析器批量执行Q1.14位精确运算并分别统计输入量化、舍入/饱和和端到端EVM。正式搜索包含100000组随机场景和20000组反馈变异场景。归一化QPSK/16QAM/64QAM没有饱和且P99端到端EVM低于`3e-4`；峰值累加器和最大误差样例固化为UVM测试`precoder_numeric_worst_test`，服务器VCS结果与位精确期望完全一致。详见 `docs/stage10_numeric_search.md`。
+
+## new第11阶段 性能预测模型与计数器闭环验证
+
+UVM性能monitor对周期、输入/输出向量、输入/输出阻塞、饱和、配置写和commit计数建立独立周期模型，逐周期比较RTL内部计数器，并在AXI-Lite读请求握手时保存期望值以核对软件可见读数。每个事务的预测规则为“9个固定周期 + 该事务输出反压周期数”。20个seed共240个向量覆盖四种反压配置，全部计数器和延迟预测精确一致；无反压时延迟固定9周期，100 MHz持续吞吐率为625万向量/秒。详见 `docs/stage11_performance_verification.md`。

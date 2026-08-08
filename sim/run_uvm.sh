@@ -18,6 +18,7 @@ if [[ "${SKIP_COMPILE:-0}" != "1" ]]; then
     -ntb_opts uvm-1.2 \
     tb/uvm/axi_stream_if.sv \
     tb/uvm/axi_lite_if.sv \
+    tb/uvm/performance_if.sv \
     tb/uvm/precoder_uvm_pkg.sv \
     rtl/complex_mult.sv \
     rtl/complex_mac.sv \
@@ -53,6 +54,7 @@ fi
 build/vcs/uvm/simv_uvm \
   +UVM_TESTNAME="$uvm_test" +ntb_random_seed="$seed" +VECTORS="$vectors" \
   +STRICT_AXI_INPUT \
+  ${EXTRA_PLUSARGS:-} \
   "${coverage_run_opts[@]}" \
   -l "$run_log"
 if grep -Eq "UVM_ERROR[[:space:]]*:[[:space:]]*[1-9]|UVM_FATAL[[:space:]]*:[[:space:]]*[1-9]|Assertion.*failed|Offending|^[[:space:]]*Error:" "$run_log"; then
@@ -71,6 +73,10 @@ case "$uvm_test" in
   precoder_numeric_worst_test)
     grep -q "\[PHASE10\].*4 bit-exact RTL outputs and saturation flags" "$run_log"
     grep -q "\[PHASE9_SVA_CORE\].*accepted=1 completed=1" "$run_log"
+    ;;
+  precoder_performance_test)
+    grep -q "\[PHASE11\].*throughput_at_100MHz" "$run_log"
+    grep -q "\[PHASE9_SVA_CORE\].*accepted=${vectors} completed=${vectors}" "$run_log"
     ;;
   *)
     echo "ERROR: run_uvm.sh has no completion check for $uvm_test" >&2
