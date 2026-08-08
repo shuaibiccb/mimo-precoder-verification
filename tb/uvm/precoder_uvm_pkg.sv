@@ -329,6 +329,18 @@ package precoder_uvm_pkg;
         bit pending;
         bit pending_bank;
         bit [7:0] pending_version;
+        // Track transaction IDs independently from the ordered numerical model.
+        // IDs may be reused after completion, but never while outstanding.
+        bit outstanding_tid[0:255];
+        bit [7:0] last_completed_tid;
+        bit last_completed_tid_valid;
+        virtual axi_stream_if reset_vif;
+        int accepted_id_count;
+        int completed_id_count;
+        int duplicate_accept_count;
+        int unknown_output_count;
+        int duplicate_completion_count;
+        int tid_mismatch_count;
         real error_energy;
         real reference_energy;
         real last_evm;
@@ -341,8 +353,10 @@ package precoder_uvm_pkg;
             output_imp=new("output_imp",this); lite_imp=new("lite_imp",this);
         endfunction
         function void build_phase(uvm_phase phase);
-            integer bank, row, col;
+            integer bank, row, col, tid_index;
             super.build_phase(phase);
+            if (!uvm_config_db#(virtual axi_stream_if)::get(this,"","reset_vif",reset_vif))
+                reset_vif=null;
             input_index=0; output_index=0; vector_active=0;
             active_bank=0; active_version=0; active_mode_8x8=0; active_format_12=0;
             active_truncate=0; active_wrap=0; transaction_tid=0;
@@ -350,6 +364,12 @@ package precoder_uvm_pkg;
             transaction_truncate=0; transaction_wrap=0; pending=0;
             error_energy=0.0; reference_energy=0.0; last_evm=0.0; max_evm=0.0;
             checked_vectors=0; busy_commit_count=0; saturated_output_count=0;
+            accepted_id_count=0; completed_id_count=0;
+            duplicate_accept_count=0; unknown_output_count=0;
+            duplicate_completion_count=0; tid_mismatch_count=0;
+            last_completed_tid=0; last_completed_tid_valid=0;
+            for (tid_index=0; tid_index<256; tid_index=tid_index+1)
+                outstanding_tid[tid_index]=0;
             for (bank=0; bank<2; bank=bank+1)
                 for (row=0; row<8; row=row+1)
                     for (col=0; col<8; col=col+1) begin
@@ -357,6 +377,35 @@ package precoder_uvm_pkg;
                         matrix_imag[bank][row][col]=0;
                     end
         endfunction
+        function void reset_runtime_state();
+            integer bank, row, col, tid_index;
+            input_index=0; output_index=0; vector_active=0;
+            active_bank=0; active_version=0; active_mode_8x8=0;
+            active_format_12=0; active_truncate=0; active_wrap=0;
+            transaction_tid=0; transaction_mode_8x8=0;
+            transaction_format_12=0; transaction_truncate=0;
+            transaction_wrap=0; pending=0; pending_bank=0;
+            pending_version=0; error_energy=0.0; reference_energy=0.0;
+            last_evm=0.0;
+            last_completed_tid=0; last_completed_tid_valid=0;
+            for (tid_index=0; tid_index<256; tid_index=tid_index+1)
+                outstanding_tid[tid_index]=0;
+            for (bank=0; bank<2; bank=bank+1)
+                for (row=0; row<8; row=row+1)
+                    for (col=0; col<8; col=col+1) begin
+                        matrix_real[bank][row][col]=0;
+                        matrix_imag[bank][row][col]=0;
+                    end
+            `uvm_info("TID_RESET","scoreboard transaction tracker cleared by reset",UVM_LOW)
+        endfunction
+        task run_phase(uvm_phase phase);
+            if (reset_vif != null) begin
+                forever begin
+                    @(negedge reset_vif.aresetn);
+                    reset_runtime_state();
+                end
+            end
+        endtask
         function automatic int signed round_output(input longint signed value,
                                                     input bit format_12,
                                                     input bit truncate_mode,
@@ -457,6 +506,10 @@ package precoder_uvm_pkg;
                 `uvm_error("REF_FORMAT","12-bit input is not sign extended")
             if (tr.last !== (input_index == (active_mode_8x8 ? 7 : 3)))
                 `uvm_error("REF_INPUT_LAST",$sformatf("bad input TLAST on beat %0d",input_index))
+            if ((input_index != 0) && (tr.tid !== transaction_tid)) begin
+                tid_mismatch_count++;
+                `uvm_error("TID_INPUT_STABILITY",$sformatf("input TID changed within vector: expected %0d got %0d",transaction_tid,tr.tid));
+            end
             vector_real[input_index]=tr.real_part;
             vector_imag[input_index]=tr.imag_part;
             if (input_index == 0)
@@ -469,11 +522,27 @@ package precoder_uvm_pkg;
                 end
             if (input_index == (active_mode_8x8 ? 7 : 3)) begin
                 transaction_bank=active_bank; transaction_version=active_version;
+                if (outstanding_tid[tr.tid]) begin
+                    duplicate_accept_count++;
+                    `uvm_error("TID_DUP_ACCEPT",$sformatf("transaction TID %0d accepted while still outstanding",tr.tid));
+                end else begin
+                    outstanding_tid[tr.tid]=1;
+                    accepted_id_count++;
+                end
                 vector_active=1; calculate_expected(); input_index=0;
             end else input_index++;
         endfunction
         function void write_output(axi_stream_out_item tr);
             real exp_real, exp_imag, got_real, got_imag, vector_evm;
+            if (!outstanding_tid[tr.tid]) begin
+                if (last_completed_tid_valid && (tr.tid === last_completed_tid)) begin
+                    duplicate_completion_count++;
+                    `uvm_error("TID_DUP_COMPLETE",$sformatf("duplicate completion observed for TID %0d",tr.tid));
+                end else begin
+                    unknown_output_count++;
+                    `uvm_error("TID_UNKNOWN_OUTPUT",$sformatf("output observed for unknown TID %0d",tr.tid));
+                end
+            end
             if (!vector_active) begin
                 `uvm_error("REF_ORDER","output arrived before complete input vector"); return;
             end
@@ -487,7 +556,10 @@ package precoder_uvm_pkg;
             if (tr.version !== transaction_version)
                 `uvm_error("REF_VERSION",$sformatf("expected matrix version %0d got %0d",transaction_version,tr.version));
             if (tr.tid !== transaction_tid)
-                `uvm_error("REF_TID",$sformatf("expected transaction TID %0d got %0d",transaction_tid,tr.tid));
+                begin
+                    tid_mismatch_count++;
+                    `uvm_error("REF_TID",$sformatf("expected transaction TID %0d got %0d",transaction_tid,tr.tid));
+                end
             if (tr.saturated !== expected_saturated[output_index])
                 `uvm_error("REF_SAT",$sformatf("antenna %0d expected saturation %0d got %0d",output_index,expected_saturated[output_index],tr.saturated));
             if (tr.saturated) saturated_output_count++;
@@ -505,6 +577,12 @@ package precoder_uvm_pkg;
                 if (vector_evm > max_evm) max_evm=vector_evm;
                 `uvm_info("REF_EVM",$sformatf("vector %0d fixed reference PASS, EVM=%0.6e",checked_vectors,vector_evm),UVM_LOW);
                 output_index=0; vector_active=0; error_energy=0.0; reference_energy=0.0;
+                if (outstanding_tid[transaction_tid]) begin
+                    outstanding_tid[transaction_tid]=0;
+                    completed_id_count++;
+                    last_completed_tid=transaction_tid;
+                    last_completed_tid_valid=1;
+                end
                 if (pending) begin
                     active_bank=pending_bank; active_version=pending_version; pending=0;
                 end
@@ -1262,6 +1340,56 @@ package precoder_uvm_pkg;
             if (env.scoreboard.checked_vectors != 3)
                 `uvm_fatal("TID_COUNT",$sformatf("expected 3 checked vectors got %0d",env.scoreboard.checked_vectors));
             `uvm_info("PHASE17",$sformatf("TID end-to-end checked %0d vectors, max EVM=%0.6e",env.scoreboard.checked_vectors,env.scoreboard.max_evm),UVM_LOW);
+            phase.drop_objection(this);
+        endtask
+    endclass
+
+    class precoder_tid_scoreboard_test extends uvm_test;
+        `uvm_component_utils(precoder_tid_scoreboard_test)
+        precoder_env env;
+        function new(string name, uvm_component parent); super.new(name,parent); endfunction
+        function void build_phase(uvm_phase phase);
+            super.build_phase(phase);
+            uvm_config_db#(int)::set(this,"env.stream_in_agent.driver","gap_max",1);
+            uvm_config_db#(int)::set(this,"env.stream_out_agent.driver","stall_percent",55);
+            uvm_config_db#(int)::set(this,"env.lite_agent.driver","response_stall_max",2);
+            env=precoder_env::type_id::create("env",this);
+        endfunction
+        task run_phase(uvm_phase phase);
+            programmable_matrix_sequence cfg;
+            programmable_vector_sequence seq;
+            integer i, vector_id;
+            phase.raise_objection(this);
+            wait(env.lite_agent.vif.aresetn); repeat(2) @(posedge env.lite_agent.vif.aclk);
+            cfg=programmable_matrix_sequence::type_id::create("tid_tracker_matrix");
+            cfg.bank=0; cfg.mode_8x8=0;
+            for (i=0;i<16;i=i+1) begin
+                cfg.coeff_real[i]=(i/4==i%4)?16'sh4000:0;
+                cfg.coeff_imag[i]=0;
+            end
+            cfg.start(env.lite_agent.sequencer);
+            for (vector_id=0; vector_id<4; vector_id=vector_id+1) begin
+                seq=programmable_vector_sequence::type_id::create($sformatf("tid_tracker_vector_%0d",vector_id));
+                seq.mode_8x8=0; seq.tid=8'ha0+vector_id;
+                for (i=0;i<4;i=i+1) begin
+                    seq.sample_real[i]=(i+1)*(vector_id+1)*511;
+                    seq.sample_imag[i]=-(i+1)*(vector_id+1)*73;
+                end
+                seq.start(env.stream_in_agent.sequencer);
+                wait(env.scoreboard.checked_vectors >= vector_id+1);
+            end
+            if (env.scoreboard.accepted_id_count != 4
+                    || env.scoreboard.completed_id_count != 4)
+                `uvm_fatal("TID_TRACK_COUNT",$sformatf("expected accepted=4 completed=4 got accepted=%0d completed=%0d",env.scoreboard.accepted_id_count,env.scoreboard.completed_id_count));
+            if ((env.scoreboard.duplicate_accept_count != 0)
+                    || (env.scoreboard.unknown_output_count != 0)
+                    || (env.scoreboard.duplicate_completion_count != 0)
+                    || (env.scoreboard.tid_mismatch_count != 0))
+                `uvm_fatal("TID_TRACK_ERROR",$sformatf("duplicate_accept=%0d unknown_output=%0d duplicate_completion=%0d tid_mismatch=%0d",env.scoreboard.duplicate_accept_count,env.scoreboard.unknown_output_count,env.scoreboard.duplicate_completion_count,env.scoreboard.tid_mismatch_count));
+            for (i=0;i<256;i=i+1)
+                if (env.scoreboard.outstanding_tid[i])
+                    `uvm_fatal("TID_TRACK_LEAK",$sformatf("TID %0d remains outstanding",i));
+            `uvm_info("PHASE18",$sformatf("ID scoreboard matched %0d accepted and %0d completed transactions; no duplicate, unknown, or leaked IDs",env.scoreboard.accepted_id_count,env.scoreboard.completed_id_count),UVM_LOW);
             phase.drop_objection(this);
         endtask
     endclass

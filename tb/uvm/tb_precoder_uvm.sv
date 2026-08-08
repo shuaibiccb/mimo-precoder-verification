@@ -40,6 +40,7 @@ module tb_precoder_uvm;
         uvm_config_db#(virtual axi_lite_if)::set(null,"uvm_test_top.env.lite_agent","vif",lite_if);
         uvm_config_db#(virtual axi_stream_if)::set(null,"uvm_test_top.env.stream_in_agent","vif",stream_in_if);
         uvm_config_db#(virtual axi_stream_if)::set(null,"uvm_test_top.env.stream_out_agent","vif",stream_out_if);
+        uvm_config_db#(virtual axi_stream_if)::set(null,"uvm_test_top.env.scoreboard","reset_vif",stream_in_if);
         uvm_config_db#(virtual performance_if)::set(null,"uvm_test_top.env.performance_monitor","vif",perf_if);
         run_test();
     end

@@ -150,3 +150,11 @@ SVA记录。详细说明见`docs/stage16_runtime_quantization.md`。
 新增8位 `s_axis_tid/m_axis_tid`，由DUT在输入向量第一拍锁存并在所有输出拍返回。
 UVM和SVA检查向量内ID稳定、反压期间ID稳定以及端到端ID一致性。详细说明见
 `docs/stage17_stream_tid.md`。
+
+## new第18阶段 按事务 ID 的 scoreboard 跟踪
+
+scoreboard 新增 256 项未完成 ID 表，在完整输入向量接受时登记，在最后一个输出 beat
+握手时完成并清除。阶段测试检查重复接受、未知输出、重复完成、向量内 TID 变化和复位
+清空；当前 RTL 仍保持单事务在途，暂不引入乱序执行。验收测试为
+`precoder_tid_scoreboard_test`，使用 4 个不同 ID 和输出反压，要求 accepted/completed
+均为 4、所有 ID 错误计数为 0、`UVM_ERROR=0`、`UVM_FATAL=0`。

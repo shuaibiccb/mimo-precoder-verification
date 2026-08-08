@@ -12,7 +12,8 @@ rm -rf build/vcs/uvm/regression/sva_report build/vcs/uvm/regression/seed_*.vdb \
   build/vcs/uvm/regression/precoder_8x8.vdb \
   build/vcs/uvm/regression/precoder_12bit.vdb \
   build/vcs/uvm/regression/precoder_quantization.vdb \
-  build/vcs/uvm/regression/precoder_tid.vdb
+  build/vcs/uvm/regression/precoder_tid.vdb \
+  build/vcs/uvm/regression/precoder_tid_scoreboard.vdb
 
 for ((run=0; run<runs; run++)); do
   seed=$((base_seed + run))
@@ -44,6 +45,12 @@ UVM_TEST=precoder_tid_test VECTORS=3 SEED=$((base_seed + runs + 3)) \
   RUN_LOG="build/vcs/uvm/regression/precoder_tid.log" SKIP_COMPILE=1 \
   bash sim/run_uvm.sh
 
+echo "UVM AXI-Stream ID scoreboard tracking test"
+UVM_TEST=precoder_tid_scoreboard_test VECTORS=4 SEED=$((base_seed + runs + 4)) \
+  SVA_COVERAGE=1 SVA_VDB="build/vcs/uvm/regression/precoder_tid_scoreboard.vdb" \
+  RUN_LOG="build/vcs/uvm/regression/precoder_tid_scoreboard.log" SKIP_COMPILE=1 \
+  bash sim/run_uvm.sh
+
 echo "UVM 12-bit Q1.10 format test"
 UVM_TEST=precoder_12bit_test VECTORS=1 SEED=$((base_seed + runs + 1)) \
   SVA_COVERAGE=1 SVA_VDB="build/vcs/uvm/regression/precoder_12bit.vdb" \
@@ -58,6 +65,7 @@ fi
 urg -full64 -dir "${vdbs[@]}" build/vcs/uvm/regression/precoder_8x8.vdb \
   build/vcs/uvm/regression/precoder_quantization.vdb \
   build/vcs/uvm/regression/precoder_tid.vdb \
+  build/vcs/uvm/regression/precoder_tid_scoreboard.vdb \
   build/vcs/uvm/regression/precoder_12bit.vdb \
   -report build/vcs/uvm/regression/sva_report \
   -log build/vcs/uvm/regression/sva_urg.log

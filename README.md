@@ -248,3 +248,11 @@ Stage 17 adds 8-bit AXI-Stream transaction IDs. `s_axis_tid` is latched on the
 first input beat and returned as `m_axis_tid` on every output beat; UVM and SVA
 verify ID stability through backpressure and end-to-end consistency. See
 `docs/stage17_stream_tid.md`.
+
+Stage 18 makes transaction-ID lifecycle checking explicit in the UVM scoreboard.
+The scoreboard tracks accepted and completed IDs, rejects duplicate accepts and
+unknown or duplicate completions, checks ID stability within a vector, and clears
+the table on reset. `precoder_tid_scoreboard_test` covers four IDs with output
+backpressure. The current single-transaction RTL remains unchanged; this stage
+prepares the verification contract for a future concurrent or out-of-order core.
+See `docs/stage18_tid_scoreboard.md`.
