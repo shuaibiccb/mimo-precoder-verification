@@ -239,7 +239,7 @@ package precoder_uvm_pkg;
                 @(posedge vif.aclk);
                 if (vif.tvalid && vif.tready) begin
                     tr=axi_stream_in_item::type_id::create("input_observed");
-                    tr.real_part=vif.tdata[31:16]; tr.imag_part=vif.tdata[15:0]; tr.keep=vif.tkeep; tr.last=vif.tlast; ap.write(tr);
+                    tr.real_part=vif.tdata[31:16]; tr.imag_part=vif.tdata[15:0]; tr.keep=vif.tkeep; tr.tid=vif.tid; tr.last=vif.tlast; ap.write(tr);
                 end
             end
         endtask
