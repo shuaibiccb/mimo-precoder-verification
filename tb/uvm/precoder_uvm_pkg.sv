@@ -72,11 +72,14 @@ package precoder_uvm_pkg;
     class axi_lite_driver extends uvm_driver#(axi_lite_item);
         `uvm_component_utils(axi_lite_driver)
         virtual axi_lite_if vif;
+        int response_stall_max;
         function new(string name, uvm_component parent); super.new(name,parent); endfunction
         function void build_phase(uvm_phase phase);
             super.build_phase(phase);
             if (!uvm_config_db#(virtual axi_lite_if)::get(this,"","vif",vif))
                 `uvm_fatal("NOVIF","axi_lite_driver virtual interface not set")
+            if (!uvm_config_db#(int)::get(this,"","response_stall_max",response_stall_max))
+                response_stall_max=0;
         endfunction
         task reset_signals();
             vif.awaddr <= '0; vif.awvalid <= 0; vif.wdata <= '0; vif.wstrb <= '0;
@@ -98,6 +101,7 @@ package precoder_uvm_pkg;
                 do @(posedge vif.aclk); while (!vif.wready);
                 @(negedge vif.aclk); vif.wvalid <= 0;
             end
+            repeat ($urandom_range(response_stall_max)) @(posedge vif.aclk);
             @(negedge vif.aclk); vif.bready <= 1;
             do @(posedge vif.aclk); while (!vif.bvalid);
             tr.response = vif.bresp;
@@ -106,7 +110,9 @@ package precoder_uvm_pkg;
         task send_read(axi_lite_item tr);
             @(negedge vif.aclk); vif.araddr <= tr.addr; vif.arvalid <= 1;
             do @(posedge vif.aclk); while (!vif.arready);
-            @(negedge vif.aclk); vif.arvalid <= 0; vif.rready <= 1;
+            @(negedge vif.aclk); vif.arvalid <= 0;
+            repeat ($urandom_range(response_stall_max)) @(posedge vif.aclk);
+            @(negedge vif.aclk); vif.rready <= 1;
             do @(posedge vif.aclk); while (!vif.rvalid);
             tr.read_data = vif.rdata; tr.response = vif.rresp;
             @(negedge vif.aclk); vif.rready <= 0;
@@ -509,6 +515,20 @@ package precoder_uvm_pkg;
         endtask
     endclass
 
+    class axi_lite_read_sequence extends uvm_sequence#(axi_lite_item);
+        `uvm_object_utils(axi_lite_read_sequence)
+        bit [31:0] addr;
+        bit [31:0] read_data;
+        bit [1:0] response;
+        function new(string name="axi_lite_read_sequence"); super.new(name); endfunction
+        task body();
+            axi_lite_item tr=axi_lite_item::type_id::create("read");
+            tr.is_write=0; tr.addr=addr;
+            start_item(tr); finish_item(tr);
+            read_data=tr.read_data; response=tr.response;
+        endtask
+    endclass
+
     class precoder_base_test extends uvm_test;
         `uvm_component_utils(precoder_base_test)
         precoder_env env;
@@ -528,6 +548,7 @@ package precoder_uvm_pkg;
             if (vector_count < 4) vector_count=4;
             uvm_config_db#(int)::set(this,"env.stream_in_agent.driver","gap_max",3);
             uvm_config_db#(int)::set(this,"env.stream_out_agent.driver","stall_percent",35);
+            uvm_config_db#(int)::set(this,"env.lite_agent.driver","response_stall_max",3);
             env=precoder_env::type_id::create("env",this);
         endfunction
         function automatic bit signed [15:0] random_q14(input int limit);
@@ -587,8 +608,15 @@ package precoder_uvm_pkg;
             if (env.scoreboard.checked_vectors < expected_count)
                 `uvm_fatal("TIMEOUT",$sformatf("expected %0d checked vectors, got %0d",expected_count,env.scoreboard.checked_vectors))
         endtask
+        task read_and_check_register(input bit [31:0] addr);
+            axi_lite_read_sequence read_seq;
+            read_seq=axi_lite_read_sequence::type_id::create($sformatf("read_%08x",addr));
+            read_seq.addr=addr; read_seq.start(env.lite_agent.sequencer);
+            if (read_seq.response != 2'b00)
+                `uvm_fatal("AXIL_READ",$sformatf("read 0x%08x response %b",addr,read_seq.response))
+        endtask
         task run_phase(uvm_phase phase);
-            integer completed, i, first_bank_vectors;
+            integer completed, i, first_bank_vectors, next_vector;
             phase.raise_objection(this);
             wait(env.lite_agent.vif.aresetn); repeat(2) @(posedge env.lite_agent.vif.aclk);
             program_random_bank(0,0); program_random_bank(1,1);
@@ -597,19 +625,33 @@ package precoder_uvm_pkg;
             // The first commit is issued immediately after input acceptance,
             // while the Bank0 vector is still being computed or emitted.
             send_random_vector(0); commit_bank(1,8'h31);
-            completed++; wait_for_vector(completed);
-            for (i=1;i<first_bank_vectors;i=i+1) begin
+            completed=1; next_vector=1;
+            if (next_vector < first_bank_vectors) begin
+                // Present the next vector while the core is busy. This creates
+                // a legal AXI-Stream stall and checks source payload stability.
+                send_random_vector(next_vector); completed++; next_vector++;
+            end
+            wait_for_vector(completed);
+            for (i=next_vector;i<first_bank_vectors;i=i+1) begin
                 send_random_vector(i); completed++; wait_for_vector(completed);
             end
 
             program_random_bank(0,2);
             send_random_vector(first_bank_vectors); commit_bank(0,8'ha2);
-            completed++; wait_for_vector(completed);
-            for (i=first_bank_vectors+1;i<vector_count;i=i+1) begin
+            completed++; next_vector=first_bank_vectors+1;
+            if (next_vector < vector_count) begin
+                send_random_vector(next_vector); completed++; next_vector++;
+            end
+            wait_for_vector(completed);
+            for (i=next_vector;i<vector_count;i=i+1) begin
                 send_random_vector(i); completed++; wait_for_vector(completed);
             end
             if (env.scoreboard.busy_commit_count < 2)
                 `uvm_fatal("BUSY_COMMIT",$sformatf("expected two busy commits, observed %0d",env.scoreboard.busy_commit_count))
+            read_and_check_register(32'h0000_000c);
+            read_and_check_register(32'h0000_0014);
+            read_and_check_register(32'h0000_0018);
+            read_and_check_register(32'h0000_0028);
             `uvm_info("PHASE8",$sformatf("checked %0d vectors, %0d busy commits, %0d saturated outputs, max EVM=%0.6e",completed,env.scoreboard.busy_commit_count,env.scoreboard.saturated_output_count,env.scoreboard.max_evm),UVM_LOW)
             phase.drop_objection(this);
         endtask

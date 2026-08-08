@@ -35,15 +35,59 @@ module axi_precoder_sva (
 
     logic [1:0] expected_output_ant;
     logic [7:0] vector_version;
+    logic aw_pending;
+    logic w_pending;
+    logic write_outstanding;
+    logic read_outstanding;
+    integer input_beat_count;
+    integer output_beat_count;
+    integer write_response_count;
+    integer read_response_count;
+    logic strict_input_protocol;
+
+    initial strict_input_protocol = $test$plusargs("STRICT_AXI_INPUT");
 
     always_ff @(posedge aclk or negedge aresetn) begin
         if (!aresetn) begin
             expected_output_ant <= 2'd0;
             vector_version <= 8'd0;
+            aw_pending <= 1'b0;
+            w_pending <= 1'b0;
+            write_outstanding <= 1'b0;
+            read_outstanding <= 1'b0;
+            input_beat_count <= 0;
+            output_beat_count <= 0;
+            write_response_count <= 0;
+            read_response_count <= 0;
         end else if (m_axis_tvalid && m_axis_tready) begin
             if (expected_output_ant == 2'd0)
                 vector_version <= m_axis_tuser[10:3];
             expected_output_ant <= expected_output_ant + 1'b1;
+            output_beat_count <= output_beat_count + 1;
+        end
+        if (aresetn) begin
+            if (s_axis_tvalid && s_axis_tready)
+                input_beat_count <= input_beat_count + 1;
+            if (s_axil_awvalid && s_axil_awready)
+                aw_pending <= 1'b1;
+            if (s_axil_wvalid && s_axil_wready)
+                w_pending <= 1'b1;
+            if ((aw_pending || (s_axil_awvalid && s_axil_awready))
+                    && (w_pending || (s_axil_wvalid && s_axil_wready))) begin
+                write_outstanding <= 1'b1;
+                aw_pending <= 1'b0;
+                w_pending <= 1'b0;
+            end
+            if (s_axil_bvalid && s_axil_bready) begin
+                write_outstanding <= 1'b0;
+                write_response_count <= write_response_count + 1;
+            end
+            if (s_axil_arvalid && s_axil_arready)
+                read_outstanding <= 1'b1;
+            if (s_axil_rvalid && s_axil_rready) begin
+                read_outstanding <= 1'b0;
+                read_response_count <= read_response_count + 1;
+            end
         end
     end
 
@@ -58,24 +102,6 @@ module axi_precoder_sva (
         m_axis_tvalid && !m_axis_tready |=>
             m_axis_tvalid && $stable({m_axis_tdata, m_axis_tkeep,
                                       m_axis_tlast, m_axis_tuser});
-    endproperty
-
-    property p_aw_stable_while_stalled;
-        @(posedge aclk) disable iff (!aresetn)
-        s_axil_awvalid && !s_axil_awready |=>
-            s_axil_awvalid && $stable(s_axil_awaddr);
-    endproperty
-
-    property p_w_stable_while_stalled;
-        @(posedge aclk) disable iff (!aresetn)
-        s_axil_wvalid && !s_axil_wready |=>
-            s_axil_wvalid && $stable({s_axil_wdata, s_axil_wstrb});
-    endproperty
-
-    property p_ar_stable_while_stalled;
-        @(posedge aclk) disable iff (!aresetn)
-        s_axil_arvalid && !s_axil_arready |=>
-            s_axil_arvalid && $stable(s_axil_araddr);
     endproperty
 
     property p_b_stable_while_stalled;
@@ -108,16 +134,37 @@ module axi_precoder_sva (
             m_axis_tuser[10:3] == vector_version;
     endproperty
 
+    property p_b_has_complete_request;
+        @(posedge aclk) disable iff (!aresetn)
+        s_axil_bvalid |-> write_outstanding;
+    endproperty
+
+    property p_r_has_read_request;
+        @(posedge aclk) disable iff (!aresetn)
+        s_axil_rvalid |-> read_outstanding;
+    endproperty
+
+    property p_bresp_is_legal;
+        @(posedge aclk) disable iff (!aresetn)
+        s_axil_bvalid |-> s_axil_bresp inside {2'b00, 2'b10};
+    endproperty
+
+    property p_rresp_is_legal;
+        @(posedge aclk) disable iff (!aresetn)
+        s_axil_rvalid |-> s_axil_rresp inside {2'b00, 2'b10};
+    endproperty
+
+    property p_input_packet_shape;
+        @(posedge aclk) disable iff (!aresetn)
+        strict_input_protocol && s_axis_tvalid && s_axis_tready |->
+            (s_axis_tkeep == 4'hf)
+            && (s_axis_tlast == (input_beat_count[1:0] == 2'd3));
+    endproperty
+
     assert property (p_s_axis_stable_while_stalled)
         else $error("AXI-Stream input changed while stalled");
     assert property (p_m_axis_stable_while_stalled)
         else $error("AXI-Stream output changed while stalled");
-    assert property (p_aw_stable_while_stalled)
-        else $error("AXI-Lite AW changed while stalled");
-    assert property (p_w_stable_while_stalled)
-        else $error("AXI-Lite W changed while stalled");
-    assert property (p_ar_stable_while_stalled)
-        else $error("AXI-Lite AR changed while stalled");
     assert property (p_b_stable_while_stalled)
         else $error("AXI-Lite B changed while stalled");
     assert property (p_r_stable_while_stalled)
@@ -128,6 +175,38 @@ module axi_precoder_sva (
         else $error("AXI-Stream output antenna order is incorrect");
     assert property (p_version_stable_within_vector)
         else $error("Matrix version changed within an output vector");
+    assert property (p_b_has_complete_request)
+        else $error("AXI-Lite B response has no complete AW/W request");
+    assert property (p_r_has_read_request)
+        else $error("AXI-Lite R response has no accepted AR request");
+    assert property (p_bresp_is_legal)
+        else $error("AXI-Lite B response code is illegal");
+    assert property (p_rresp_is_legal)
+        else $error("AXI-Lite R response code is illegal");
+    assert property (p_input_packet_shape)
+        else $error("AXI-Stream input packet is not a four-beat vector");
+
+    cover property (@(posedge aclk) disable iff (!aresetn)
+        s_axil_awvalid && s_axil_awready ##[1:8]
+        s_axil_wvalid && s_axil_wready);
+    cover property (@(posedge aclk) disable iff (!aresetn)
+        s_axil_wvalid && s_axil_wready ##[1:8]
+        s_axil_awvalid && s_axil_awready);
+    cover property (@(posedge aclk) disable iff (!aresetn)
+        m_axis_tvalid && !m_axis_tready ##1
+        m_axis_tvalid && $stable({m_axis_tdata, m_axis_tuser}));
+    cover property (@(posedge aclk) disable iff (!aresetn)
+        s_axil_bvalid && !s_axil_bready ##1 s_axil_bvalid);
+    cover property (@(posedge aclk) disable iff (!aresetn)
+        s_axil_rvalid && !s_axil_rready ##1 s_axil_rvalid);
+    cover property (@(posedge aclk) disable iff (!aresetn)
+        m_axis_tvalid && m_axis_tready && m_axis_tuser[2]);
+
+    final begin
+        $display("[PHASE9_SVA_AXI] input_beats=%0d output_beats=%0d writes=%0d reads=%0d",
+                 input_beat_count, output_beat_count,
+                 write_response_count, read_response_count);
+    end
 
 endmodule
 

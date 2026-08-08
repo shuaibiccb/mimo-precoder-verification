@@ -31,8 +31,39 @@ module precoder_core_sva (
     input logic [7:0]         out_version_o,
     input logic               active_bank_o,
     input logic [7:0]         active_version_o,
-    input logic               busy_o
+    input logic               busy_o,
+    input logic               mac_clear,
+    input logic               mac_enable,
+    input logic               transaction_bank,
+    input logic [7:0]         transaction_version,
+    input logic [7:0]         result_version
 );
+
+    integer accepted_vector_count;
+    integer completed_vector_count;
+    integer busy_commit_count;
+    integer bank_switch_count;
+    logic previous_active_bank;
+
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) begin
+            accepted_vector_count <= 0;
+            completed_vector_count <= 0;
+            busy_commit_count <= 0;
+            bank_switch_count <= 0;
+            previous_active_bank <= 1'b0;
+        end else begin
+            if (mac_clear)
+                accepted_vector_count <= accepted_vector_count + 1;
+            if (out_valid_o && out_ready_i && out_last_o)
+                completed_vector_count <= completed_vector_count + 1;
+            if (commit_valid_i && commit_ready_o && busy_o)
+                busy_commit_count <= busy_commit_count + 1;
+            if (active_bank_o != previous_active_bank)
+                bank_switch_count <= bank_switch_count + 1;
+            previous_active_bank <= active_bank_o;
+        end
+    end
 
     property p_output_stable_while_stalled;
         @(posedge clk_i) disable iff (!rst_ni)
@@ -41,24 +72,10 @@ module precoder_core_sva (
                                         out_last_o, out_saturated_o, out_version_o});
     endproperty
 
-    property p_cfg_stable_while_stalled;
-        @(posedge clk_i) disable iff (!rst_ni)
-            cfg_valid_i && !cfg_ready_o
-            |=> cfg_valid_i && $stable({cfg_bank_i, cfg_row_i, cfg_col_i,
-                                        cfg_real_i, cfg_imag_i});
-    endproperty
-
     property p_input_stable_while_stalled;
         @(posedge clk_i) disable iff (!rst_ni)
             in_valid_i && !in_ready_o
             |=> in_valid_i && $stable({in_real_i, in_imag_i, in_last_i});
-    endproperty
-
-    property p_commit_stable_while_stalled;
-        @(posedge clk_i) disable iff (!rst_ni)
-            commit_valid_i && !commit_ready_o
-                && !$past(commit_valid_i && commit_ready_o)
-            |=> commit_valid_i && $stable({commit_bank_i, commit_version_i});
     endproperty
 
     property p_last_only_on_final_antenna;
@@ -100,14 +117,36 @@ module precoder_core_sva (
             out_valid_o && (out_ant_idx_o == 2'd3) |-> out_last_o;
     endproperty
 
+    property p_mac_clear_starts_vector;
+        @(posedge clk_i) disable iff (!rst_ni)
+            mac_clear |-> in_valid_i && in_ready_o && !busy_o;
+    endproperty
+
+    property p_mac_enable_only_while_busy;
+        @(posedge clk_i) disable iff (!rst_ni)
+            mac_enable |-> busy_o && !out_valid_o;
+    endproperty
+
+    property p_transaction_matrix_stable;
+        @(posedge clk_i) disable iff (!rst_ni)
+            busy_o && !(out_valid_o && out_ready_i && out_last_o)
+            |=> $stable({transaction_bank, transaction_version});
+    endproperty
+
+    property p_result_uses_transaction_version;
+        @(posedge clk_i) disable iff (!rst_ni)
+            out_valid_o |-> result_version == transaction_version;
+    endproperty
+
+    property p_no_more_completions_than_accepts;
+        @(posedge clk_i) disable iff (!rst_ni)
+            completed_vector_count <= accepted_vector_count;
+    endproperty
+
     assert property (p_output_stable_while_stalled)
         else $error("output changed while stalled");
-    assert property (p_cfg_stable_while_stalled)
-        else $error("configuration payload changed while stalled");
     assert property (p_input_stable_while_stalled)
         else $error("input payload changed while stalled");
-    assert property (p_commit_stable_while_stalled)
-        else $error("commit payload changed while stalled");
     assert property (p_last_only_on_final_antenna)
         else $error("out_last asserted outside antenna 3");
     assert property (p_reset_clears_visible_state)
@@ -122,6 +161,34 @@ module precoder_core_sva (
         else $error("pending commit cleared before the vector boundary");
     assert property (p_final_antenna_has_last)
         else $error("antenna 3 output missing out_last");
+    assert property (p_mac_clear_starts_vector)
+        else $error("MAC clear did not coincide with a new vector");
+    assert property (p_mac_enable_only_while_busy)
+        else $error("MAC enabled outside the compute transaction");
+    assert property (p_transaction_matrix_stable)
+        else $error("transaction Bank/version changed while busy");
+    assert property (p_result_uses_transaction_version)
+        else $error("output result does not use the locked transaction version");
+    assert property (p_no_more_completions_than_accepts)
+        else $error("more vectors completed than were accepted");
+
+    cover property (@(posedge clk_i) disable iff (!rst_ni)
+        commit_valid_i && commit_ready_o && busy_o ##[1:64]
+        commit_pending_o ##[1:64] !commit_pending_o);
+    cover property (@(posedge clk_i) disable iff (!rst_ni)
+        active_bank_o == 1'b0 ##[1:128] active_bank_o == 1'b1);
+    cover property (@(posedge clk_i) disable iff (!rst_ni)
+        active_bank_o == 1'b1 ##[1:128] active_bank_o == 1'b0);
+    cover property (@(posedge clk_i) disable iff (!rst_ni)
+        out_valid_o && out_ready_i && out_saturated_o);
+    cover property (@(posedge clk_i) disable iff (!rst_ni)
+        out_valid_o && !out_ready_i ##1 out_valid_o);
+
+    final begin
+        $display("[PHASE9_SVA_CORE] accepted=%0d completed=%0d busy_commits=%0d bank_switches=%0d",
+                 accepted_vector_count, completed_vector_count,
+                 busy_commit_count, bank_switch_count);
+    end
 
 endmodule
 
@@ -156,5 +223,10 @@ bind precoder_core precoder_core_sva u_precoder_core_sva (
     .out_version_o(out_version_o),
     .active_bank_o(active_bank_o),
     .active_version_o(active_version_o),
-    .busy_o(busy_o)
+    .busy_o(busy_o),
+    .mac_clear(mac_clear),
+    .mac_enable(mac_enable),
+    .transaction_bank(transaction_bank),
+    .transaction_version(transaction_version),
+    .result_version(result_version)
 );

@@ -11,7 +11,10 @@ fi
 
 mkdir -p build/vcs/uvm
 if [[ "${SKIP_COMPILE:-0}" != "1" ]]; then
+  coverage_compile_opts=()
+  if [[ "${SVA_COVERAGE:-0}" == "1" ]]; then coverage_compile_opts=(-cm assert); fi
   vcs -full64 -sverilog -timescale=1ns/1ps -debug_access+all \
+    "${coverage_compile_opts[@]}" \
     -ntb_opts uvm-1.2 \
     tb/uvm/axi_stream_if.sv \
     tb/uvm/axi_lite_if.sv \
@@ -27,6 +30,8 @@ if [[ "${SKIP_COMPILE:-0}" != "1" ]]; then
     rtl/performance_counters.sv \
     rtl/axi_lite_regs.sv \
     rtl/axi_precoder_wrapper.sv \
+    tb/assertions/precoder_core_sva.sv \
+    tb/assertions/axi_precoder_sva.sv \
     tb/uvm/tb_precoder_uvm.sv \
     -top tb_precoder_uvm -o build/vcs/uvm/simv_uvm \
     -l build/vcs/uvm/compile.log
@@ -41,16 +46,24 @@ uvm_test=${UVM_TEST:-precoder_base_test}
 seed=${SEED:-20260808}
 vectors=${VECTORS:-12}
 run_log=${RUN_LOG:-build/vcs/uvm/run.log}
+coverage_run_opts=()
+if [[ "${SVA_COVERAGE:-0}" == "1" ]]; then
+  coverage_run_opts=(-cm assert -cm_dir "${SVA_VDB:-build/vcs/uvm/sva.vdb}")
+fi
 build/vcs/uvm/simv_uvm \
   +UVM_TESTNAME="$uvm_test" +ntb_random_seed="$seed" +VECTORS="$vectors" \
+  +STRICT_AXI_INPUT \
+  "${coverage_run_opts[@]}" \
   -l "$run_log"
-if grep -Eq "UVM_ERROR[[:space:]]*:[[:space:]]*[1-9]|UVM_FATAL[[:space:]]*:[[:space:]]*[1-9]" "$run_log"; then
-  echo "ERROR: UVM errors were reported" >&2
+if grep -Eq "UVM_ERROR[[:space:]]*:[[:space:]]*[1-9]|UVM_FATAL[[:space:]]*:[[:space:]]*[1-9]|Assertion.*failed|Offending|^[[:space:]]*Error:" "$run_log"; then
+  echo "ERROR: UVM or SVA errors were reported" >&2
   exit 1
 fi
 if [[ "$uvm_test" == "precoder_base_test" ]]; then
   grep -q "UVM scoreboard checked 4 output beats" "$run_log"
 else
   grep -q "\[PHASE8\].*checked" "$run_log"
+  grep -q "\[PHASE9_SVA_AXI\].*reads=[1-9]" "$run_log"
+  grep -Eq "\[PHASE9_SVA_CORE\].*busy_commits=[2-9].*bank_switches=[2-9]" "$run_log"
 fi
 echo "PASS: $uvm_test completed with seed $seed"

@@ -109,3 +109,11 @@ UVM scoreboard连接输入和输出monitor：输入向量经过Q14位精确乘�
 新增 `tb/assertions/axi_precoder_sva.sv`，检查AXI五个独立通道以及输入/输出流在反压期间保持稳定，并检查输出天线顺序、TLAST、TKEEP和事务内矩阵版本。新增 `tb/coverage/axi_precoder_coverage.sv`，覆盖AXI读写顺序和响应、非法流输入、双Bank、pending commit、版本更新、反压和饱和场景。
 
 服务器干净回归命令为 `COVERAGE=1 bash sim/run_vcs.sh`。当前功能覆盖95.83%，RTL模块行覆盖92.34%，条件覆盖86.71%，断言覆盖85.71%。完整记录见 `docs/coverage_closure.md`。
+
+## new第8阶段 UVM随机回归与通用双参考模型
+
+scoreboard维护两套任意4x4复数Q14矩阵，并在输入向量边界锁存Bank和版本。随机回归覆盖极值输入、饱和、输入间隔、输出反压和双向忙时commit。20个seed共240个向量通过，详见 `docs/stage8_random_regression.md`。
+
+## new第9阶段 SVA协议与内部控制检查
+
+SVA正式加入UVM编译和随机回归。wrapper checker负责AXI-Stream稳定性、事务边界和AXI-Lite请求/响应对应关系；core checker负责MAC控制、事务Bank/版本锁存、忙时commit和输出完成关系。VCS assertion coverage由URG合并到 `build/vcs/uvm/regression/sva_report/dashboard.html`。20个seed无UVM/SVA错误，断言覆盖率为97.30%，详见 `docs/stage9_sva_protocol_checks.md`。
