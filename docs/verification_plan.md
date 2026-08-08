@@ -93,3 +93,9 @@
 - AXI-Stream完整4拍向量、输出反压期间payload稳定以及天线编号/`TLAST`检查。
 
 该测试与原有 `tb_axi_precoder_wrapper.sv` 一起由 `sim/run_vcs.sh` 自动编译运行。
+
+## new第5阶段 UVM AXI验证平台
+
+新增UVM 1.2环境，包括AXI-Lite主动agent、AXI-Stream输入主动agent、AXI-Stream输出接收agent、analysis FIFO和基础test。首条UVM用例通过AXI-Lite写入Bank0单位矩阵，通过AXI-Stream发送4拍输入，并检查4个输出transaction的天线编号、TLAST和矩阵版本。
+
+服务器执行 `bash sim/run_uvm.sh`。测试必须同时出现阶段5完成消息、`UVM_ERROR : 0`和`UVM_FATAL : 0`才算通过。完整位精确scoreboard和双参考模型留到new第6阶段。

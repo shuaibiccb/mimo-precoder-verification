@@ -191,3 +191,7 @@ COVERAGE=1 bash sim/run_vcs.sh
 ## new第4阶段：定向AXI接口验证
 
 新增 `tb/axi/tb_axi_precoder_stress.sv`，验证AXI-Lite读写响应在反压时保持稳定，覆盖复位取消、非对齐/非法地址、部分字节写、错误状态清除，以及AXI-Stream输出反压和元数据边界。该压力测试已纳入 `sim/run_vcs.sh`。
+
+## new第5阶段：UVM AXI验证平台
+
+`tb/uvm/` 提供基于UVM 1.2的AXI-Lite、AXI-Stream输入和AXI-Stream输出agent，以及基础environment和smoke test。测试通过AXI-Lite写入单位矩阵，发送4拍输入向量，并由输出monitor检查4个输出transaction的元数据。服务器执行 `bash sim/run_uvm.sh`，详细结构见 `docs/uvm_testbench.md`。
