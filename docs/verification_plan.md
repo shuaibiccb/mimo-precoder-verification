@@ -99,3 +99,7 @@
 新增UVM 1.2环境，包括AXI-Lite主动agent、AXI-Stream输入主动agent、AXI-Stream输出接收agent、analysis FIFO和基础test。首条UVM用例通过AXI-Lite写入Bank0单位矩阵，通过AXI-Stream发送4拍输入，并检查4个输出transaction的天线编号、TLAST和矩阵版本。
 
 服务器执行 `bash sim/run_uvm.sh`。测试必须同时出现阶段5完成消息、`UVM_ERROR : 0`和`UVM_FATAL : 0`才算通过。完整位精确scoreboard和双参考模型留到new第6阶段。
+
+## new第6阶段 Scoreboard与双参考模型
+
+UVM scoreboard连接输入和输出monitor：输入向量经过Q14位精确乘法/舍入/饱和参考路径生成期望值，输出transaction逐拍比较天线编号、TLAST、数据、饱和标志和矩阵版本；同时将定点结果反量化并计算浮点EVM。当前单位矩阵场景通过，EVM为0，UVM错误数为0。

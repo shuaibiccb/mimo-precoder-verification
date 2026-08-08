@@ -4,7 +4,7 @@
 
 本阶段为 `axi_precoder_wrapper` 建立最小可运行的UVM 1.2验证平台。重点是形成可复用的transaction、sequencer、driver、monitor、agent、environment和test层次，并完成第一条端到端UVM用例。
 
-完整位精确scoreboard、矩阵版本tracker和Python双参考模型属于new第6阶段，不在本阶段重复实现。
+当前阶段已加入位精确scoreboard、矩阵版本tracker和浮点EVM计算；更通用的双Bank commit观测、随机矩阵和Python参考模型联动将在后续扩展中继续增强。
 
 ## 文件结构
 
@@ -68,7 +68,8 @@ uvm_test_top (precoder_base_test)
 7. 检查天线编号为0、1、2、3；
 8. 检查只有第4拍TLAST为1；
 9. 检查输出矩阵版本为复位默认值0；
-10. 通过UVM objection正常结束测试。
+10. scoreboard用Q14位精确规则比较每个输出，并计算浮点EVM；
+11. 通过UVM objection正常结束测试。
 
 ## 运行方法
 
@@ -81,10 +82,10 @@ bash sim/run_uvm.sh
 通过标志包括：
 
 ```text
-UVM AXI smoke test received 4 output beats
+UVM scoreboard checked 4 output beats against fixed and floating references
 UVM_ERROR : 0
 UVM_FATAL : 0
-PASS: UVM AXI smoke test completed
+PASS: UVM AXI scoreboard test completed
 ```
 
 编译日志位于 `build/vcs/uvm/compile.log`，运行日志位于 `build/vcs/uvm/run.log`。

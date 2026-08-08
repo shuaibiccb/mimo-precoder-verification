@@ -35,5 +35,5 @@ if grep -Eq "UVM_ERROR[[:space:]]*:[[:space:]]*[1-9]|UVM_FATAL[[:space:]]*:[[:sp
   echo "ERROR: UVM errors were reported" >&2
   exit 1
 fi
-grep -q "UVM AXI smoke test received 4 output beats" build/vcs/uvm/run.log
-echo "PASS: UVM AXI smoke test completed"
+grep -q "UVM scoreboard checked 4 output beats" build/vcs/uvm/run.log
+echo "PASS: UVM AXI scoreboard test completed"

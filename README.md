@@ -195,3 +195,7 @@ COVERAGE=1 bash sim/run_vcs.sh
 ## new第5阶段：UVM AXI验证平台
 
 `tb/uvm/` 提供基于UVM 1.2的AXI-Lite、AXI-Stream输入和AXI-Stream输出agent，以及基础environment和smoke test。测试通过AXI-Lite写入单位矩阵，发送4拍输入向量，并由输出monitor检查4个输出transaction的元数据。服务器执行 `bash sim/run_uvm.sh`，详细结构见 `docs/uvm_testbench.md`。
+
+## new第6阶段：Scoreboard与双参考模型
+
+UVM environment新增scoreboard，接收输入/输出monitor事务，使用Q14位精确参考规则逐拍比较结果，同时计算浮点EVM。阶段6日志必须包含 `UVM scoreboard checked 4 output beats` 且 `UVM_ERROR/UVM_FATAL`均为0。

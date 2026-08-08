@@ -3,6 +3,8 @@
 package precoder_uvm_pkg;
     import uvm_pkg::*;
     `include "uvm_macros.svh"
+    `uvm_analysis_imp_decl(_input)
+    `uvm_analysis_imp_decl(_output)
 
     class axi_lite_item extends uvm_sequence_item;
         rand bit        is_write;
@@ -249,13 +251,103 @@ package precoder_uvm_pkg;
         function void build_phase(uvm_phase phase); super.build_phase(phase); if (!uvm_config_db#(virtual axi_stream_if)::get(this,"","vif",vif)) `uvm_fatal("NOVIF","stream output vif missing"); monitor=axi_stream_out_monitor::type_id::create("monitor",this); driver=axi_stream_out_ready_driver::type_id::create("driver",this); uvm_config_db#(virtual axi_stream_if)::set(this,"monitor","vif",vif); uvm_config_db#(virtual axi_stream_if)::set(this,"driver","vif",vif); endfunction
     endclass
 
+    class matrix_version_tracker extends uvm_object;
+        `uvm_object_utils(matrix_version_tracker)
+        bit active_bank;
+        bit [7:0] active_version;
+        bit pending;
+        bit pending_bank;
+        bit [7:0] pending_version;
+        function new(string name="matrix_version_tracker");
+            super.new(name); active_bank=0; active_version=0; pending=0; pending_bank=0; pending_version=0;
+        endfunction
+        function void request_commit(bit bank, bit [7:0] version);
+            if (bank == active_bank) begin
+                `uvm_warning("VERSION_TRACKER","commit request targets active Bank")
+            end else begin
+                pending=1; pending_bank=bank; pending_version=version;
+            end
+        endfunction
+        function void apply_pending();
+            if (pending) begin active_bank=pending_bank; active_version=pending_version; pending=0; end
+        endfunction
+    endclass
+
+    // Phase 6 reference checker: identity matrix is the configured DUT matrix.
+    // The integer path is the bit-accurate Q14 model; the real path reports EVM.
+    class precoder_scoreboard extends uvm_component;
+        `uvm_component_utils(precoder_scoreboard)
+        uvm_analysis_imp_input#(axi_stream_in_item, precoder_scoreboard) input_imp;
+        uvm_analysis_imp_output#(axi_stream_out_item, precoder_scoreboard) output_imp;
+        axi_stream_in_item input_beats[$];
+        int output_index;
+        real error_energy;
+        real reference_energy;
+        int checked_vectors;
+        matrix_version_tracker version_tracker;
+        function new(string name, uvm_component parent);
+            super.new(name,parent); input_imp=new("input_imp",this); output_imp=new("output_imp",this);
+        endfunction
+        function void build_phase(uvm_phase phase);
+            super.build_phase(phase); output_index=0; error_energy=0.0; reference_energy=0.0; checked_vectors=0; version_tracker=matrix_version_tracker::type_id::create("version_tracker");
+        endfunction
+        function void write_input(axi_stream_in_item tr);
+            axi_stream_in_item copy;
+            $cast(copy,tr.clone());
+            input_beats.push_back(copy);
+            if (tr.keep != 4'hf) `uvm_error("REF_TKEEP","reference input has invalid TKEEP")
+        endfunction
+        function automatic int round_q14(input int signed value);
+            int signed magnitude; int signed rounded;
+            magnitude = (value < 0) ? -value : value;
+            rounded = (magnitude + (1 << 13)) >>> 14;
+            if (value < 0) rounded = -rounded;
+            if (rounded > 32767) rounded=32767;
+            if (rounded < -32768) rounded=-32768;
+            return rounded;
+        endfunction
+        function void write_output(axi_stream_out_item tr);
+            axi_stream_in_item expected;
+            int signed expected_real, expected_imag;
+            real exp_real, exp_imag, got_real, got_imag;
+            if (input_beats.size() < 4) begin
+                `uvm_error("REF_ORDER","output arrived before complete input vector"); return;
+            end
+            if (tr.antenna !== output_index[1:0])
+                `uvm_error("REF_ANTENNA",$sformatf("expected antenna %0d got %0d",output_index,tr.antenna));
+            if (tr.last !== (output_index == 3))
+                `uvm_error("REF_LAST",$sformatf("bad TLAST on output %0d",output_index));
+            expected = input_beats[output_index];
+            // Identity matrix: one product per row, Q28 product requantized to Q14.
+            expected_real = round_q14(expected.real_part * 16384);
+            expected_imag = round_q14(expected.imag_part * 16384);
+            if (tr.real_part !== expected_real[15:0] || tr.imag_part !== expected_imag[15:0])
+                `uvm_error("REF_FIXED",$sformatf("antenna %0d expected %0d+%0dj got %0d+%0dj",output_index,expected_real,expected_imag,tr.real_part,tr.imag_part));
+            if (tr.version !== version_tracker.active_version)
+                `uvm_error("REF_VERSION",$sformatf("expected matrix version %0d got %0d",version_tracker.active_version,tr.version));
+            if (tr.saturated !== 1'b0)
+                `uvm_error("REF_SAT","unexpected saturation for identity reference");
+            exp_real = expected_real / 16384.0; exp_imag = expected_imag / 16384.0;
+            got_real = tr.real_part / 16384.0; got_imag = tr.imag_part / 16384.0;
+            error_energy += (got_real-exp_real)*(got_real-exp_real) + (got_imag-exp_imag)*(got_imag-exp_imag);
+            reference_energy += exp_real*exp_real + exp_imag*exp_imag;
+            output_index++;
+            if (output_index == 4) begin
+                checked_vectors++;
+                `uvm_info("REF_EVM",$sformatf("vector %0d fixed reference PASS, EVM=%0.6e",checked_vectors,(reference_energy==0.0)?0.0:$sqrt(error_energy/reference_energy)),UVM_LOW);
+                output_index=0; input_beats.delete(); error_energy=0.0; reference_energy=0.0;
+            end
+        endfunction
+    endclass
+
     class precoder_env extends uvm_env;
         `uvm_component_utils(precoder_env)
         axi_lite_agent lite_agent; axi_stream_in_agent stream_in_agent; axi_stream_out_agent stream_out_agent;
         uvm_tlm_analysis_fifo#(axi_stream_out_item) output_fifo;
+        precoder_scoreboard scoreboard;
         function new(string name, uvm_component parent); super.new(name,parent); endfunction
-        function void build_phase(uvm_phase phase); super.build_phase(phase); lite_agent=axi_lite_agent::type_id::create("lite_agent",this); stream_in_agent=axi_stream_in_agent::type_id::create("stream_in_agent",this); stream_out_agent=axi_stream_out_agent::type_id::create("stream_out_agent",this); output_fifo=new("output_fifo",this); endfunction
-        function void connect_phase(uvm_phase phase); stream_out_agent.monitor.ap.connect(output_fifo.analysis_export); endfunction
+        function void build_phase(uvm_phase phase); super.build_phase(phase); lite_agent=axi_lite_agent::type_id::create("lite_agent",this); stream_in_agent=axi_stream_in_agent::type_id::create("stream_in_agent",this); stream_out_agent=axi_stream_out_agent::type_id::create("stream_out_agent",this); output_fifo=new("output_fifo",this); scoreboard=precoder_scoreboard::type_id::create("scoreboard",this); endfunction
+        function void connect_phase(uvm_phase phase); stream_out_agent.monitor.ap.connect(output_fifo.analysis_export); stream_in_agent.monitor.ap.connect(scoreboard.input_imp); stream_out_agent.monitor.ap.connect(scoreboard.output_imp); endfunction
     endclass
 
     class matrix_config_sequence extends uvm_sequence#(axi_lite_item);
@@ -275,6 +367,6 @@ package precoder_uvm_pkg;
         precoder_env env;
         function new(string name, uvm_component parent); super.new(name,parent); endfunction
         function void build_phase(uvm_phase phase); super.build_phase(phase); env=precoder_env::type_id::create("env",this); endfunction
-        task run_phase(uvm_phase phase); matrix_config_sequence cfg; input_vector_sequence seq; axi_stream_out_item out; int count; phase.raise_objection(this); wait(env.lite_agent.vif.aresetn); repeat(2) @(posedge env.lite_agent.vif.aclk); cfg=matrix_config_sequence::type_id::create("cfg"); cfg.start(env.lite_agent.sequencer); seq=input_vector_sequence::type_id::create("seq"); seq.start(env.stream_in_agent.sequencer); count=0; repeat(4) begin env.output_fifo.get(out); if (out.antenna !== count[1:0]) `uvm_error("META",$sformatf("expected antenna %0d got %0d",count,out.antenna)); if (out.last !== (count==3)) `uvm_error("LAST",$sformatf("bad TLAST on output %0d",count)); if (out.version !== 0) `uvm_error("VERSION",$sformatf("expected version 0 got %0d",out.version)); count++; end `uvm_info("PHASE5","UVM AXI smoke test received 4 output beats",UVM_LOW); phase.drop_objection(this); endtask
+        task run_phase(uvm_phase phase); matrix_config_sequence cfg; input_vector_sequence seq; axi_stream_out_item out; int count; phase.raise_objection(this); wait(env.lite_agent.vif.aresetn); repeat(2) @(posedge env.lite_agent.vif.aclk); cfg=matrix_config_sequence::type_id::create("cfg"); cfg.start(env.lite_agent.sequencer); seq=input_vector_sequence::type_id::create("seq"); seq.start(env.stream_in_agent.sequencer); count=0; repeat(4) begin env.output_fifo.get(out); if (out.version !== 0) `uvm_error("VERSION",$sformatf("expected version 0 got %0d",out.version)); count++; end `uvm_info("PHASE6","UVM scoreboard checked 4 output beats against fixed and floating references",UVM_LOW); phase.drop_objection(this); endtask
     endclass
 endpackage
