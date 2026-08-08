@@ -4,7 +4,7 @@
 
 本阶段为 `axi_precoder_wrapper` 建立最小可运行的UVM 1.2验证平台。重点是形成可复用的transaction、sequencer、driver、monitor、agent、environment和test层次，并完成第一条端到端UVM用例。
 
-当前阶段已加入位精确scoreboard、矩阵版本tracker和浮点EVM计算；更通用的双Bank commit观测、随机矩阵和Python参考模型联动将在后续扩展中继续增强。
+当前平台已加入通用位精确scoreboard、双Bank/版本跟踪、浮点EVM计算和多seed随机回归。Python/DPI模型联动可在后续扩展中继续增强。
 
 ## 文件结构
 
@@ -89,3 +89,21 @@ PASS: UVM AXI scoreboard test completed
 ```
 
 编译日志位于 `build/vcs/uvm/compile.log`，运行日志位于 `build/vcs/uvm/run.log`。
+
+## new第8阶段随机回归
+
+AXI-Lite monitor现在组合AW、W和B通道，将成功写入的地址、数据、WSTRB和响应送入scoreboard。scoreboard维护两套4×4复数矩阵，在输入向量边界锁存活动Bank与版本，并分别计算Q14位精确期望结果和浮点EVM参考结果。
+
+单个随机seed运行：
+
+```bash
+UVM_TEST=precoder_random_test SEED=20260808 VECTORS=12 bash sim/run_uvm.sh
+```
+
+20个seed批量运行：
+
+```bash
+RUNS=20 VECTORS=12 BASE_SEED=20260808 bash sim/run_uvm_regression.sh
+```
+
+完整场景和结果见 `docs/stage8_random_regression.md`。
