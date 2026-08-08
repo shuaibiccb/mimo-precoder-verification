@@ -10,6 +10,7 @@ module axi_precoder_wrapper #(
 
     input logic [31:0] s_axis_tdata,
     input logic [3:0] s_axis_tkeep,
+    input logic [7:0] s_axis_tid,
     input logic s_axis_tvalid,
     output logic s_axis_tready,
     input logic s_axis_tlast,
@@ -19,6 +20,7 @@ module axi_precoder_wrapper #(
     input logic m_axis_tready,
     output logic m_axis_tlast,
     output logic [11:0] m_axis_tuser,
+    output logic [7:0] m_axis_tid,
 
     input logic [31:0] s_axil_awaddr,
     input logic s_axil_awvalid,
@@ -59,6 +61,7 @@ module axi_precoder_wrapper #(
     logic signed [DATA_WIDTH-1:0] out_real, out_imag;
     logic [2:0] out_ant_idx;
     logic [VERSION_WIDTH-1:0] out_version;
+    logic [7:0] transaction_tid;
     logic busy, protocol_error;
     logic input_vector_pulse, early_tlast_pulse, missing_tlast_pulse;
     logic invalid_tkeep_pulse, output_vector_pulse, saturation_pulse;
@@ -72,10 +75,12 @@ module axi_precoder_wrapper #(
         .aclk(aclk), .aresetn(aresetn),
         .mode_8x8_i(mode_8x8),
         .s_axis_tdata(s_axis_tdata), .s_axis_tkeep(s_axis_tkeep),
+        .s_axis_tid(s_axis_tid),
         .s_axis_tvalid(s_axis_tvalid), .s_axis_tready(s_axis_tready),
         .s_axis_tlast(s_axis_tlast), .core_valid_o(in_valid),
         .core_ready_i(in_ready), .core_real_o(in_real), .core_imag_o(in_imag),
-        .core_last_o(in_last), .input_vector_pulse_o(input_vector_pulse),
+        .core_last_o(in_last), .core_tid_o(transaction_tid),
+        .input_vector_pulse_o(input_vector_pulse),
         .early_tlast_pulse_o(early_tlast_pulse),
         .missing_tlast_pulse_o(missing_tlast_pulse),
         .invalid_tkeep_pulse_o(invalid_tkeep_pulse)
@@ -86,9 +91,11 @@ module axi_precoder_wrapper #(
         .core_real_i(out_real), .core_imag_i(out_imag),
         .core_ant_idx_i(out_ant_idx), .core_last_i(out_last),
         .core_saturated_i(out_saturated), .core_version_i(out_version),
+        .core_tid_i(transaction_tid),
         .m_axis_tdata(m_axis_tdata), .m_axis_tkeep(m_axis_tkeep),
         .m_axis_tvalid(m_axis_tvalid), .m_axis_tready(m_axis_tready),
         .m_axis_tlast(m_axis_tlast), .m_axis_tuser(m_axis_tuser),
+        .m_axis_tid(m_axis_tid),
         .output_vector_pulse_o(output_vector_pulse),
         .saturation_pulse_o(saturation_pulse)
     );

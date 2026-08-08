@@ -9,6 +9,7 @@ module tb_axi_precoder_stress;
 
     logic [31:0] s_axis_tdata, m_axis_tdata, awaddr, wdata, araddr, rdata;
     logic [3:0] s_axis_tkeep, m_axis_tkeep, wstrb;
+    logic [7:0] s_axis_tid, m_axis_tid;
     logic s_axis_tvalid, s_axis_tready, s_axis_tlast;
     logic m_axis_tvalid, m_axis_tready, m_axis_tlast;
     logic awvalid, awready, wvalid, wready, bvalid, bready;
@@ -18,11 +19,11 @@ module tb_axi_precoder_stress;
 
     axi_precoder_wrapper dut (
         .aclk(aclk), .aresetn(aresetn), .s_axis_tdata(s_axis_tdata),
-        .s_axis_tkeep(s_axis_tkeep), .s_axis_tvalid(s_axis_tvalid),
+        .s_axis_tkeep(s_axis_tkeep), .s_axis_tid(s_axis_tid), .s_axis_tvalid(s_axis_tvalid),
         .s_axis_tready(s_axis_tready), .s_axis_tlast(s_axis_tlast),
         .m_axis_tdata(m_axis_tdata), .m_axis_tkeep(m_axis_tkeep),
         .m_axis_tvalid(m_axis_tvalid), .m_axis_tready(m_axis_tready),
-        .m_axis_tlast(m_axis_tlast), .m_axis_tuser(m_axis_tuser),
+        .m_axis_tlast(m_axis_tlast), .m_axis_tuser(m_axis_tuser), .m_axis_tid(m_axis_tid),
         .s_axil_awaddr(awaddr), .s_axil_awvalid(awvalid), .s_axil_awready(awready),
         .s_axil_wdata(wdata), .s_axil_wstrb(wstrb), .s_axil_wvalid(wvalid),
         .s_axil_wready(wready), .s_axil_bresp(bresp), .s_axil_bvalid(bvalid),
@@ -97,7 +98,7 @@ module tb_axi_precoder_stress;
     logic [1:0] held_bresp;
     integer i, seed;
     initial begin
-        s_axis_tdata='0; s_axis_tkeep=4'hf; s_axis_tvalid=0; s_axis_tlast=0;
+        s_axis_tdata='0; s_axis_tkeep=4'hf; s_axis_tid=8'h00; s_axis_tvalid=0; s_axis_tlast=0;
         m_axis_tready=1; awaddr='0; awvalid=0; wdata='0; wstrb=0; wvalid=0;
         bready=1; araddr='0; arvalid=0; rready=1; seed=32'h51a7_2026;
         repeat(3) @(posedge aclk); @(negedge aclk); aresetn=1;

@@ -97,6 +97,11 @@ case "$uvm_test" in
     grep -q "\[PHASE9_SVA_AXI\].*input_beats=16 output_beats=16" "$run_log"
     grep -q "\[PHASE9_SVA_CORE\].*accepted=4 completed=4" "$run_log"
     ;;
+  precoder_tid_test)
+    grep -q "\[PHASE17\].*TID end-to-end checked" "$run_log"
+    grep -q "\[PHASE9_SVA_AXI\].*input_beats=12 output_beats=12" "$run_log"
+    grep -q "\[PHASE9_SVA_CORE\].*accepted=3 completed=3" "$run_log"
+    ;;
   *)
     echo "ERROR: run_uvm.sh has no completion check for $uvm_test" >&2
     exit 1

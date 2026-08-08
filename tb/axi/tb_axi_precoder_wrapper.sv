@@ -10,11 +10,13 @@ module tb_axi_precoder_wrapper;
 
     logic [31:0] s_axis_tdata;
     logic [3:0] s_axis_tkeep;
+    logic [7:0] s_axis_tid;
     logic s_axis_tvalid, s_axis_tready, s_axis_tlast;
     logic [31:0] m_axis_tdata;
     logic [3:0] m_axis_tkeep;
     logic m_axis_tvalid, m_axis_tready, m_axis_tlast;
     logic [11:0] m_axis_tuser;
+    logic [7:0] m_axis_tid;
     logic [31:0] awaddr, wdata, araddr, rdata;
     logic [3:0] wstrb;
     logic awvalid, awready, wvalid, wready, bvalid, bready;
@@ -24,12 +26,12 @@ module tb_axi_precoder_wrapper;
 
     axi_precoder_wrapper dut (
         .aclk(aclk), .aresetn(aresetn),
-        .s_axis_tdata(s_axis_tdata), .s_axis_tkeep(s_axis_tkeep),
+        .s_axis_tdata(s_axis_tdata), .s_axis_tkeep(s_axis_tkeep), .s_axis_tid(s_axis_tid),
         .s_axis_tvalid(s_axis_tvalid), .s_axis_tready(s_axis_tready),
         .s_axis_tlast(s_axis_tlast), .m_axis_tdata(m_axis_tdata),
         .m_axis_tkeep(m_axis_tkeep), .m_axis_tvalid(m_axis_tvalid),
         .m_axis_tready(m_axis_tready), .m_axis_tlast(m_axis_tlast),
-        .m_axis_tuser(m_axis_tuser), .s_axil_awaddr(awaddr),
+        .m_axis_tuser(m_axis_tuser), .m_axis_tid(m_axis_tid), .s_axil_awaddr(awaddr),
         .s_axil_awvalid(awvalid), .s_axil_awready(awready),
         .s_axil_wdata(wdata), .s_axil_wstrb(wstrb),
         .s_axil_wvalid(wvalid), .s_axil_wready(wready),
@@ -150,6 +152,7 @@ module tb_axi_precoder_wrapper;
         begin
             @(negedge aclk);
             s_axis_tdata = {real_part, imag_part};
+            s_axis_tid = 8'h00;
             s_axis_tkeep = keep;
             s_axis_tlast = last;
             s_axis_tvalid = 1'b1;
@@ -186,7 +189,7 @@ module tb_axi_precoder_wrapper;
     integer idx;
 
     initial begin
-        s_axis_tdata = '0; s_axis_tkeep = 4'hf;
+        s_axis_tdata = '0; s_axis_tkeep = 4'hf; s_axis_tid = 8'h00;
         s_axis_tvalid = 1'b0; s_axis_tlast = 1'b0;
         m_axis_tready = 1'b1;
         awaddr = '0; awvalid = 1'b0; wdata = '0; wstrb = '0; wvalid = 1'b0;

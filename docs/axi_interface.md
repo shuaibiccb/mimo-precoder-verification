@@ -48,7 +48,7 @@ module axi_precoder_wrapper (...);
 2. AXI4-Stream master：输出天线复数结果；
 3. AXI4-Lite slave：配置矩阵、提交Bank、读取状态和计数器。
 
-第一版不使用AXI transaction ID。当前核心只有一个事务在途，因此输出按输入顺序返回。
+当前核心只有一个事务在途，因此输出按输入顺序返回；`TID`用于软件和验证平台端到端追踪，不能改变输出顺序。
 
 ## 4. AXI4-Stream输入协议
 
@@ -58,6 +58,7 @@ module axi_precoder_wrapper (...);
 |---|---|---:|---|
 | `s_axis_tdata` | 输入 | 32 | 一个复数输入符号 |
 | `s_axis_tkeep` | 输入 | 4 | 有效字节，合法值必须为 `4'b1111` |
+| `s_axis_tid` | 输入 | 8 | 输入事务标识；一个向量的所有拍必须相同 |
 | `s_axis_tvalid` | 输入 | 1 | 输入有效 |
 | `s_axis_tready` | 输出 | 1 | wrapper可以接收输入 |
 | `s_axis_tlast` | 输入 | 1 | 输入向量的最后一拍 |
@@ -105,6 +106,7 @@ in_last_i = s_axis_tlast
 | `m_axis_tready` | 输入 | 1 | 下游可以接收 |
 | `m_axis_tlast` | 输出 | 1 | 输出向量的最后一拍 |
 | `m_axis_tuser` | 输出 | 12 | 天线编号、饱和标志和矩阵版本 |
+| `m_axis_tid` | 输出 | 8 | 输出事务标识；回传所接受输入向量的 `s_axis_tid` |
 
 数据布局固定为：
 

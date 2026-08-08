@@ -243,3 +243,8 @@ Stage 16 adds runtime `QUANT_CTRL` at `0x048`: bit0 selects truncation versus
 nearest-value rounding and bit1 selects wrap versus saturation. The default
 `00` preserves the previous behavior. The strategy is latched per transaction;
 busy writes are rejected. See `docs/stage16_runtime_quantization.md`.
+
+Stage 17 adds 8-bit AXI-Stream transaction IDs. `s_axis_tid` is latched on the
+first input beat and returned as `m_axis_tid` on every output beat; UVM and SVA
+verify ID stability through backpressure and end-to-end consistency. See
+`docs/stage17_stream_tid.md`.

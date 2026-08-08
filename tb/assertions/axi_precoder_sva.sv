@@ -6,6 +6,7 @@ module axi_precoder_sva (
     input logic        mode_8x8,
     input logic [31:0] s_axis_tdata,
     input logic [3:0]  s_axis_tkeep,
+    input logic [7:0]  s_axis_tid,
     input logic        s_axis_tvalid,
     input logic        s_axis_tready,
     input logic        s_axis_tlast,
@@ -15,6 +16,7 @@ module axi_precoder_sva (
     input logic        m_axis_tready,
     input logic        m_axis_tlast,
     input logic [11:0] m_axis_tuser,
+    input logic [7:0]  m_axis_tid,
     input logic [31:0] s_axil_awaddr,
     input logic        s_axil_awvalid,
     input logic        s_axil_awready,
@@ -36,7 +38,10 @@ module axi_precoder_sva (
 
     logic [2:0] expected_output_ant;
     logic [2:0] input_vector_beat;
+    logic [7:0] input_tid;
+    logic [7:0] accepted_tid;
     logic [7:0] vector_version;
+    logic [7:0] vector_tid;
     logic aw_pending;
     logic w_pending;
     logic write_outstanding;
@@ -53,7 +58,10 @@ module axi_precoder_sva (
         if (!aresetn) begin
             expected_output_ant <= 3'd0;
             input_vector_beat <= 3'd0;
+            input_tid <= 8'd0;
+            accepted_tid <= 8'd0;
             vector_version <= 8'd0;
+            vector_tid <= 8'd0;
             aw_pending <= 1'b0;
             w_pending <= 1'b0;
             write_outstanding <= 1'b0;
@@ -63,8 +71,10 @@ module axi_precoder_sva (
             write_response_count <= 0;
             read_response_count <= 0;
         end else if (m_axis_tvalid && m_axis_tready) begin
-            if (expected_output_ant == 2'd0)
+            if (expected_output_ant == 2'd0) begin
                 vector_version <= m_axis_tuser[10:3];
+                vector_tid <= m_axis_tid;
+            end
             if (m_axis_tlast)
                 expected_output_ant <= 3'd0;
             else
@@ -74,6 +84,10 @@ module axi_precoder_sva (
         if (aresetn) begin
             if (s_axis_tvalid && s_axis_tready) begin
                 input_beat_count <= input_beat_count + 1;
+                if (input_vector_beat == 3'd0) begin
+                    input_tid <= s_axis_tid;
+                    accepted_tid <= s_axis_tid;
+                end
                 if (s_axis_tlast)
                     input_vector_beat <= 3'd0;
                 else
@@ -105,14 +119,14 @@ module axi_precoder_sva (
     property p_s_axis_stable_while_stalled;
         @(posedge aclk) disable iff (!aresetn)
         s_axis_tvalid && !s_axis_tready |=>
-            s_axis_tvalid && $stable({s_axis_tdata, s_axis_tkeep, s_axis_tlast});
+            s_axis_tvalid && $stable({s_axis_tdata, s_axis_tkeep, s_axis_tlast, s_axis_tid});
     endproperty
 
     property p_m_axis_stable_while_stalled;
         @(posedge aclk) disable iff (!aresetn)
         m_axis_tvalid && !m_axis_tready |=>
             m_axis_tvalid && $stable({m_axis_tdata, m_axis_tkeep,
-                                      m_axis_tlast, m_axis_tuser});
+                                      m_axis_tlast, m_axis_tuser, m_axis_tid});
     endproperty
 
     property p_b_stable_while_stalled;
@@ -147,6 +161,12 @@ module axi_precoder_sva (
             m_axis_tuser[10:3] == vector_version;
     endproperty
 
+    property p_tid_stable_within_vector;
+        @(posedge aclk) disable iff (!aresetn)
+        m_axis_tvalid && (expected_output_ant != 3'd0) |->
+            m_axis_tid == vector_tid;
+    endproperty
+
     property p_b_has_complete_request;
         @(posedge aclk) disable iff (!aresetn)
         s_axil_bvalid |-> write_outstanding;
@@ -175,6 +195,17 @@ module axi_precoder_sva (
                 == (input_vector_beat == (mode_8x8 ? 3'd7 : 3'd3)));
     endproperty
 
+    property p_input_tid_stable_within_vector;
+        @(posedge aclk) disable iff (!aresetn)
+        s_axis_tvalid && s_axis_tready && (input_vector_beat != 3'd0) |->
+            s_axis_tid == input_tid;
+    endproperty
+
+    property p_output_tid_matches_input;
+        @(posedge aclk) disable iff (!aresetn)
+        m_axis_tvalid |-> m_axis_tid == accepted_tid;
+    endproperty
+
     assert property (p_s_axis_stable_while_stalled)
         else $error("AXI-Stream input changed while stalled");
     assert property (p_m_axis_stable_while_stalled)
@@ -189,6 +220,8 @@ module axi_precoder_sva (
         else $error("AXI-Stream output antenna order is incorrect");
     assert property (p_version_stable_within_vector)
         else $error("Matrix version changed within an output vector");
+    assert property (p_tid_stable_within_vector)
+        else $error("AXI-Stream transaction ID changed within an output vector");
     assert property (p_b_has_complete_request)
         else $error("AXI-Lite B response has no complete AW/W request");
     assert property (p_r_has_read_request)
@@ -199,6 +232,10 @@ module axi_precoder_sva (
         else $error("AXI-Lite R response code is illegal");
     assert property (p_input_packet_shape)
         else $error("AXI-Stream input packet length does not match MODE");
+    assert property (p_input_tid_stable_within_vector)
+        else $error("AXI-Stream input transaction ID changed within a vector");
+    assert property (p_output_tid_matches_input)
+        else $error("AXI-Stream output transaction ID does not match input");
 
     cover property (@(posedge aclk) disable iff (!aresetn)
         s_axil_awvalid && s_axil_awready ##[1:8]

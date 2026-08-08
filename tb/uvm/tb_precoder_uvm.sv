@@ -7,8 +7,8 @@ module tb_precoder_uvm;
     performance_if perf_if(aclk,aresetn);
     axi_precoder_wrapper dut(
         .aclk(aclk),.aresetn(aresetn),
-        .s_axis_tdata(stream_in_if.tdata),.s_axis_tkeep(stream_in_if.tkeep),.s_axis_tvalid(stream_in_if.tvalid),.s_axis_tready(stream_in_if.tready),.s_axis_tlast(stream_in_if.tlast),
-        .m_axis_tdata(stream_out_if.tdata),.m_axis_tkeep(stream_out_if.tkeep),.m_axis_tvalid(stream_out_if.tvalid),.m_axis_tready(stream_out_if.tready),.m_axis_tlast(stream_out_if.tlast),.m_axis_tuser(stream_out_if.tuser),
+        .s_axis_tdata(stream_in_if.tdata),.s_axis_tkeep(stream_in_if.tkeep),.s_axis_tid(stream_in_if.tid),.s_axis_tvalid(stream_in_if.tvalid),.s_axis_tready(stream_in_if.tready),.s_axis_tlast(stream_in_if.tlast),
+        .m_axis_tdata(stream_out_if.tdata),.m_axis_tkeep(stream_out_if.tkeep),.m_axis_tvalid(stream_out_if.tvalid),.m_axis_tready(stream_out_if.tready),.m_axis_tlast(stream_out_if.tlast),.m_axis_tuser(stream_out_if.tuser),.m_axis_tid(stream_out_if.tid),
         .s_axil_awaddr(lite_if.awaddr),.s_axil_awvalid(lite_if.awvalid),.s_axil_awready(lite_if.awready),.s_axil_wdata(lite_if.wdata),.s_axil_wstrb(lite_if.wstrb),.s_axil_wvalid(lite_if.wvalid),.s_axil_wready(lite_if.wready),.s_axil_bresp(lite_if.bresp),.s_axil_bvalid(lite_if.bvalid),.s_axil_bready(lite_if.bready),.s_axil_araddr(lite_if.araddr),.s_axil_arvalid(lite_if.arvalid),.s_axil_arready(lite_if.arready),.s_axil_rdata(lite_if.rdata),.s_axil_rresp(lite_if.rresp),.s_axil_rvalid(lite_if.rvalid),.s_axil_rready(lite_if.rready));
 
     assign perf_if.clear_counters = dut.clear_counters;

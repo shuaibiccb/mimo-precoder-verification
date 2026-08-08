@@ -144,3 +144,9 @@ bit1选择饱和或低位回绕，复位默认`00`。策略只允许在空闲且
 时修改，并在事务开始锁存。UVM用例覆盖四种策略组合、饱和标志行为、寄存器读回
 和忙时写保护；通过标准为`UVM_ERROR=0`、`UVM_FATAL=0`且4个输入/输出向量均有
 SVA记录。详细说明见`docs/stage16_runtime_quantization.md`。
+
+## new第17阶段 AXI-Stream事务 ID
+
+新增8位 `s_axis_tid/m_axis_tid`，由DUT在输入向量第一拍锁存并在所有输出拍返回。
+UVM和SVA检查向量内ID稳定、反压期间ID稳定以及端到端ID一致性。详细说明见
+`docs/stage17_stream_tid.md`。

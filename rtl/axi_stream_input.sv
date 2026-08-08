@@ -7,6 +7,7 @@ module axi_stream_input (
 
     input  logic [31:0] s_axis_tdata,
     input  logic [3:0]  s_axis_tkeep,
+    input  logic [7:0]  s_axis_tid,
     input  logic        s_axis_tvalid,
     output logic        s_axis_tready,
     input  logic        s_axis_tlast,
@@ -16,6 +17,7 @@ module axi_stream_input (
     output logic signed [15:0] core_real_o,
     output logic signed [15:0] core_imag_o,
     output logic        core_last_o,
+    output logic [7:0]  core_tid_o,
 
     output logic        input_vector_pulse_o,
     output logic        early_tlast_pulse_o,
@@ -45,7 +47,10 @@ module axi_stream_input (
     always_ff @(posedge aclk or negedge aresetn) begin
         if (!aresetn) begin
             beat_index <= 3'd0;
+            core_tid_o <= 8'd0;
         end else if (handshake) begin
+            if (beat_index == 3'd0)
+                core_tid_o <= s_axis_tid;
             if (beat_index == final_index) begin
                 beat_index <= 3'd0;
             end else begin

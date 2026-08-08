@@ -31,11 +31,13 @@ package precoder_uvm_pkg;
         rand bit signed [15:0] real_part;
         rand bit signed [15:0] imag_part;
         rand bit [3:0] keep;
+        rand bit [7:0] tid;
         rand bit last;
         `uvm_object_utils_begin(axi_stream_in_item)
             `uvm_field_int(real_part, UVM_DEFAULT)
             `uvm_field_int(imag_part, UVM_DEFAULT)
             `uvm_field_int(keep, UVM_DEFAULT)
+            `uvm_field_int(tid, UVM_DEFAULT)
             `uvm_field_int(last, UVM_DEFAULT)
         `uvm_object_utils_end
         function new(string name="axi_stream_in_item"); super.new(name); endfunction
@@ -47,6 +49,7 @@ package precoder_uvm_pkg;
         bit [2:0] antenna;
         bit saturated;
         bit [7:0] version;
+        bit [7:0] tid;
         bit last;
         `uvm_object_utils_begin(axi_stream_out_item)
             `uvm_field_int(real_part, UVM_DEFAULT)
@@ -54,6 +57,7 @@ package precoder_uvm_pkg;
             `uvm_field_int(antenna, UVM_DEFAULT)
             `uvm_field_int(saturated, UVM_DEFAULT)
             `uvm_field_int(version, UVM_DEFAULT)
+            `uvm_field_int(tid, UVM_DEFAULT)
             `uvm_field_int(last, UVM_DEFAULT)
         `uvm_object_utils_end
         function new(string name="axi_stream_out_item"); super.new(name); endfunction
@@ -208,11 +212,11 @@ package precoder_uvm_pkg;
             if (!uvm_config_db#(int)::get(this,"","gap_max",gap_max)) gap_max=0;
         endfunction
         task run_phase(uvm_phase phase);
-            vif.tdata <= 0; vif.tkeep <= 0; vif.tvalid <= 0; vif.tlast <= 0;
+            vif.tdata <= 0; vif.tkeep <= 0; vif.tid <= 0; vif.tvalid <= 0; vif.tlast <= 0;
             forever begin
                 seq_item_port.get_next_item(req);
                 repeat ($urandom_range(gap_max)) @(posedge vif.aclk);
-                @(negedge vif.aclk); vif.tdata <= {req.real_part,req.imag_part}; vif.tkeep <= req.keep; vif.tlast <= req.last; vif.tvalid <= 1;
+                @(negedge vif.aclk); vif.tdata <= {req.real_part,req.imag_part}; vif.tkeep <= req.keep; vif.tid <= req.tid; vif.tlast <= req.last; vif.tvalid <= 1;
                 do @(posedge vif.aclk); while (!vif.tready);
                 @(negedge vif.aclk); vif.tvalid <= 0;
                 seq_item_port.item_done();
@@ -265,7 +269,7 @@ package precoder_uvm_pkg;
             forever begin
                 @(posedge vif.aclk);
                 if (vif.tvalid && vif.tready) begin
-                    tr=axi_stream_out_item::type_id::create("output_observed"); tr.real_part=vif.tdata[31:16]; tr.imag_part=vif.tdata[15:0]; tr.antenna={vif.tuser[11],vif.tuser[1:0]}; tr.saturated=vif.tuser[2]; tr.version=vif.tuser[10:3]; tr.last=vif.tlast; ap.write(tr);
+                    tr=axi_stream_out_item::type_id::create("output_observed"); tr.real_part=vif.tdata[31:16]; tr.imag_part=vif.tdata[15:0]; tr.antenna={vif.tuser[11],vif.tuser[1:0]}; tr.saturated=vif.tuser[2]; tr.version=vif.tuser[10:3]; tr.tid=vif.tid; tr.last=vif.tlast; ap.write(tr);
                 end
             end
         endtask
@@ -311,6 +315,7 @@ package precoder_uvm_pkg;
         bit vector_active;
         bit transaction_bank;
         bit [7:0] transaction_version;
+        bit [7:0] transaction_tid;
         bit active_bank;
         bit [7:0] active_version;
         bit active_mode_8x8;
@@ -340,7 +345,7 @@ package precoder_uvm_pkg;
             super.build_phase(phase);
             input_index=0; output_index=0; vector_active=0;
             active_bank=0; active_version=0; active_mode_8x8=0; active_format_12=0;
-            active_truncate=0; active_wrap=0;
+            active_truncate=0; active_wrap=0; transaction_tid=0;
             transaction_mode_8x8=0; transaction_format_12=0;
             transaction_truncate=0; transaction_wrap=0; pending=0;
             error_energy=0.0; reference_energy=0.0; last_evm=0.0; max_evm=0.0;
@@ -460,6 +465,7 @@ package precoder_uvm_pkg;
                     transaction_format_12=active_format_12;
                     transaction_truncate=active_truncate;
                     transaction_wrap=active_wrap;
+                    transaction_tid=tr.tid;
                 end
             if (input_index == (active_mode_8x8 ? 7 : 3)) begin
                 transaction_bank=active_bank; transaction_version=active_version;
@@ -480,6 +486,8 @@ package precoder_uvm_pkg;
                 `uvm_error("REF_FIXED",$sformatf("antenna %0d expected %0d+%0dj got %0d+%0dj",output_index,expected_real[output_index],expected_imag[output_index],tr.real_part,tr.imag_part));
             if (tr.version !== transaction_version)
                 `uvm_error("REF_VERSION",$sformatf("expected matrix version %0d got %0d",transaction_version,tr.version));
+            if (tr.tid !== transaction_tid)
+                `uvm_error("REF_TID",$sformatf("expected transaction TID %0d got %0d",transaction_tid,tr.tid));
             if (tr.saturated !== expected_saturated[output_index])
                 `uvm_error("REF_SAT",$sformatf("antenna %0d expected saturation %0d got %0d",output_index,expected_saturated[output_index],tr.saturated));
             if (tr.saturated) saturated_output_count++;
@@ -698,7 +706,7 @@ package precoder_uvm_pkg;
     class input_vector_sequence extends uvm_sequence#(axi_stream_in_item);
         `uvm_object_utils(input_vector_sequence)
         function new(string name="input_vector_sequence"); super.new(name); endfunction
-        task body(); axi_stream_in_item tr; integer i; bit signed [15:0] vals[0:3]; vals[0]=1000; vals[1]=-2000; vals[2]=3000; vals[3]=-4000; for(i=0;i<4;i=i+1) begin tr=axi_stream_in_item::type_id::create($sformatf("input_%0d",i)); tr.real_part=vals[i]; tr.imag_part=0; tr.keep=4'hf; tr.last=(i==3); start_item(tr); finish_item(tr); end endtask
+        task body(); axi_stream_in_item tr; integer i; bit signed [15:0] vals[0:3]; vals[0]=1000; vals[1]=-2000; vals[2]=3000; vals[3]=-4000; for(i=0;i<4;i=i+1) begin tr=axi_stream_in_item::type_id::create($sformatf("input_%0d",i)); tr.real_part=vals[i]; tr.imag_part=0; tr.keep=4'hf; tr.tid=8'h00; tr.last=(i==3); start_item(tr); finish_item(tr); end endtask
     endclass
 
     class programmable_matrix_sequence extends uvm_sequence#(axi_lite_item);
@@ -724,6 +732,7 @@ package precoder_uvm_pkg;
     class programmable_vector_sequence extends uvm_sequence#(axi_stream_in_item);
         `uvm_object_utils(programmable_vector_sequence)
         bit mode_8x8;
+        bit [7:0] tid;
         bit signed [15:0] sample_real[0:7];
         bit signed [15:0] sample_imag[0:7];
         function new(string name="programmable_vector_sequence"); super.new(name); endfunction
@@ -732,7 +741,7 @@ package precoder_uvm_pkg;
             for (i=0;i<(mode_8x8 ? 8 : 4);i=i+1) begin
                 tr=axi_stream_in_item::type_id::create($sformatf("sample_%0d",i));
                 tr.real_part=sample_real[i]; tr.imag_part=sample_imag[i];
-                tr.keep=4'hf; tr.last=(i==(mode_8x8 ? 7 : 3)); start_item(tr); finish_item(tr);
+                tr.keep=4'hf; tr.tid=tid; tr.last=(i==(mode_8x8 ? 7 : 3)); start_item(tr); finish_item(tr);
             end
         endtask
     endclass
@@ -992,7 +1001,7 @@ package precoder_uvm_pkg;
             programmable_vector_sequence seq;
             integer i;
             seq=programmable_vector_sequence::type_id::create($sformatf("vector8_%0d",vector_id));
-            seq.mode_8x8=1;
+            seq.mode_8x8=1; seq.tid=8'h81;
             for (i=0;i<8;i=i+1) begin
                 expected_input_real[i]=random_q14(12000);
                 expected_input_imag[i]=random_q14(12000);
@@ -1096,7 +1105,7 @@ package precoder_uvm_pkg;
             programmable_vector_sequence seq;
             integer i;
             seq=programmable_vector_sequence::type_id::create("vector8_12");
-            seq.mode_8x8=1;
+            seq.mode_8x8=1; seq.tid=8'h91;
             for (i=0;i<8;i=i+1) begin
                 seq.sample_real[i]=q10((i % 2) ? -(i+1)*93 : (i+1)*77);
                 seq.sample_imag[i]=q10((i % 3) ? (i+1)*31 : -(i+1)*47);
@@ -1219,6 +1228,40 @@ package precoder_uvm_pkg;
                 `uvm_fatal("QUANT_BUSY",$sformatf("expected busy QUANT_CTRL SLVERR got %b",busy_quant.response));
             wait_for_vector(4);
             `uvm_info("PHASE16",$sformatf("runtime quantization checked %0d vectors; saturations=%0d",env.scoreboard.checked_vectors,env.scoreboard.saturated_output_count),UVM_LOW);
+            phase.drop_objection(this);
+        endtask
+    endclass
+
+    class precoder_tid_test extends uvm_test;
+        `uvm_component_utils(precoder_tid_test)
+        precoder_env env;
+        function new(string name, uvm_component parent); super.new(name,parent); endfunction
+        function void build_phase(uvm_phase phase);
+            super.build_phase(phase);
+            uvm_config_db#(int)::set(this,"env.stream_in_agent.driver","gap_max",0);
+            uvm_config_db#(int)::set(this,"env.stream_out_agent.driver","stall_percent",45);
+            uvm_config_db#(int)::set(this,"env.lite_agent.driver","response_stall_max",1);
+            env=precoder_env::type_id::create("env",this);
+        endfunction
+        task run_phase(uvm_phase phase);
+            programmable_matrix_sequence cfg;
+            programmable_vector_sequence seq;
+            integer i, vector_id;
+            phase.raise_objection(this);
+            wait(env.lite_agent.vif.aresetn); repeat(2) @(posedge env.lite_agent.vif.aclk);
+            cfg=programmable_matrix_sequence::type_id::create("tid_matrix"); cfg.bank=0; cfg.mode_8x8=0;
+            for(i=0;i<16;i=i+1) begin cfg.coeff_real[i]=(i/4==i%4)?16'sh4000:0; cfg.coeff_imag[i]=0; end
+            cfg.start(env.lite_agent.sequencer);
+            for(vector_id=0; vector_id<3; vector_id=vector_id+1) begin
+                seq=programmable_vector_sequence::type_id::create($sformatf("tid_vector_%0d",vector_id));
+                seq.mode_8x8=0; seq.tid=8'h30+vector_id;
+                for(i=0;i<4;i=i+1) begin seq.sample_real[i]=(i+1)*700; seq.sample_imag[i]=-(i+1)*90; end
+                seq.start(env.stream_in_agent.sequencer);
+                wait(env.scoreboard.checked_vectors >= vector_id+1);
+            end
+            if (env.scoreboard.checked_vectors != 3)
+                `uvm_fatal("TID_COUNT",$sformatf("expected 3 checked vectors got %0d",env.scoreboard.checked_vectors));
+            `uvm_info("PHASE17",$sformatf("TID end-to-end checked %0d vectors, max EVM=%0.6e",env.scoreboard.checked_vectors,env.scoreboard.max_evm),UVM_LOW);
             phase.drop_objection(this);
         endtask
     endclass
