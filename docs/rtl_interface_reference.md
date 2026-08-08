@@ -19,6 +19,12 @@
 | aclk | 输入 | 1 | AXI和计算核心共用时钟 |
 | aresetn | 输入 | 1 | 低有效异步复位，同时复位wrapper和核心 |
 
+### 运行时模式
+
+| 接口名 | 方向 | 位宽 | 说明 |
+|---|---|---:|---|
+| mode_8x8 | 内部 | 1 | AXI-Lite `MODE`寄存器镜像；0=4x4，1=8x8 |
+
 ### AXI4-Stream输入
 
 | 接口名 | 方向 | 位宽 | 说明 |
@@ -27,7 +33,7 @@
 | s_axis_tkeep | 输入 | 4 | 有效字节，合法值为 4'b1111 |
 | s_axis_tvalid | 输入 | 1 | 上游声明数据有效 |
 | s_axis_tready | 输出 | 1 | wrapper可以接收数据 |
-| s_axis_tlast | 输入 | 1 | 4拍向量的最后一拍应为1 |
+| s_axis_tlast | 输入 | 1 | 4x4为第4拍、8x8为第8拍的最后一拍 |
 
 ### AXI4-Stream输出
 
@@ -37,8 +43,8 @@
 | m_axis_tkeep | 输出 | 4 | 固定为 4'b1111 |
 | m_axis_tvalid | 输出 | 1 | 输出数据有效 |
 | m_axis_tready | 输入 | 1 | 下游可以接收数据 |
-| m_axis_tlast | 输出 | 1 | 天线3输出拍为1 |
-| m_axis_tuser | 输出 | 11 | [1:0]天线编号，[2]饱和，[10:3]矩阵版本 |
+| m_axis_tlast | 输出 | 1 | 4x4天线3、8x8天线7输出拍为1 |
+| m_axis_tuser | 输出 | 12 | [1:0]天线编号低位，[2]饱和，[10:3]版本，[11]天线编号高位 |
 
 ### AXI4-Lite写通道
 
@@ -76,6 +82,7 @@
 | 接口名 | 方向 | 位宽 | 说明 |
 |---|---|---:|---|
 | aclk / aresetn | 输入 | 1 / 1 | 时钟和低有效异步复位 |
+
 | s_axis_tdata | 输入 | 32 | AXI输入复数 |
 | s_axis_tkeep | 输入 | 4 | AXI有效字节 |
 | s_axis_tvalid / s_axis_tready | 输入/输出 | 1 / 1 | AXI输入握手 |
@@ -83,7 +90,7 @@
 | core_valid_o / core_ready_i | 输出/输入 | 1 / 1 | 核心输入握手 |
 | core_real_o / core_imag_o | 输出 | 16 signed | 送给核心的复数 |
 | core_last_o | 输出 | 1 | 送给核心的尾标志 |
-| input_vector_pulse_o | 输出 | 1 | 完整4拍向量事件 |
+| input_vector_pulse_o | 输出 | 1 | 当前模式完整输入向量事件 |
 | early_tlast_pulse_o | 输出 | 1 | 提前TLAST错误事件 |
 | missing_tlast_pulse_o | 输出 | 1 | 缺失TLAST错误事件 |
 | invalid_tkeep_pulse_o | 输出 | 1 | 非法TKEEP错误事件 |
@@ -96,7 +103,7 @@
 |---|---|---:|---|
 | core_valid_i / core_ready_o | 输入/输出 | 1 / 1 | 核心输出握手 |
 | core_real_i / core_imag_i | 输入 | 16 signed | 核心输出复数 |
-| core_ant_idx_i | 输入 | 2 | 天线编号 |
+| core_ant_idx_i | 输入 | 3 | 天线编号 |
 | core_last_i | 输入 | 1 | 核心尾标志 |
 | core_saturated_i | 输入 | 1 | 饱和标志 |
 | core_version_i | 输入 | 8 | 矩阵版本 |
@@ -104,7 +111,7 @@
 | m_axis_tkeep | 输出 | 4 | 固定全1 |
 | m_axis_tvalid / m_axis_tready | 输出/输入 | 1 / 1 | AXI输出握手 |
 | m_axis_tlast | 输出 | 1 | AXI输出尾标志 |
-| m_axis_tuser | 输出 | 11 | 天线、饱和、版本元数据 |
+| m_axis_tuser | 输出 | 12 | 天线、饱和、版本元数据 |
 | output_vector_pulse_o | 输出 | 1 | 完整输出向量事件 |
 | saturation_pulse_o | 输出 | 1 | 饱和输出事件 |
 
@@ -140,7 +147,7 @@
 | clk_i / rst_ni | 输入 | 1 / 1 | 时钟和低有效异步复位 |
 | cfg_valid_i / cfg_ready_o | 输入/输出 | 1 / 1 | 矩阵系数写握手 |
 | cfg_bank_i | 输入 | 1 | 目标Bank |
-| cfg_row_i / cfg_col_i | 输入 | 2 / 2 | 4x4行列索引 |
+| cfg_row_i / cfg_col_i | 输入 | 3 / 3 | 4x4或8x8行列索引 |
 | cfg_real_i / cfg_imag_i | 输入 | 16 signed / 16 signed | Q14复数系数 |
 | bank_complete_o | 输出 | 2 | 两个Bank完整标志 |
 | matrix_complete_o | 输出 | 1 | 当前活动Bank完整 |
@@ -155,7 +162,7 @@
 | in_last_i | 输入 | 1 | 输入尾标志 |
 | out_valid_o / out_ready_i | 输出/输入 | 1 / 1 | 输出结果握手 |
 | out_real_o / out_imag_o | 输出 | 16 signed / 16 signed | 输出复数Q14 |
-| out_ant_idx_o | 输出 | 2 | 天线编号 |
+| out_ant_idx_o | 输出 | 3 | 天线编号0～3或0～7 |
 | out_last_o | 输出 | 1 | 输出尾标志 |
 | out_saturated_o | 输出 | 1 | 饱和标志 |
 | out_version_o | 输出 | 8 | 本事务矩阵版本 |
@@ -171,10 +178,10 @@
 | clk_i / rst_ni | 输入 | 1 / 1 | 时钟和复位 |
 | write_en_i | 输入 | 1 | 写入系数 |
 | write_bank_i | 输入 | 1 | 写入Bank |
-| write_row_i / write_col_i | 输入 | 2 / 2 | 写入行列 |
+| write_row_i / write_col_i | 输入 | 3 / 3 | 写入行列 |
 | write_real_i / write_imag_i | 输入 | 16 signed / 16 signed | 写入复数系数 |
 | read_bank_i | 输入 | 1 | 读取Bank |
-| read_col_i | 输入 | 2 | 读取矩阵列 |
+| read_row_group_i / read_col_i | 输入 | 1 / 3 | 8x8行组（0～3/4～7）和列 |
 | row0_real_o～row3_real_o | 输出 | 16 signed | 四行实部系数 |
 | row0_imag_o～row3_imag_o | 输出 | 16 signed | 四行虚部系数 |
 | complete_o | 输出 | 2 | 两个Bank完整状态 |

@@ -26,10 +26,12 @@ module axi_lite_regs (
     output logic        cfg_valid_o,
     input  logic        cfg_ready_i,
     output logic        cfg_bank_o,
-    output logic [1:0]  cfg_row_o,
-    output logic [1:0]  cfg_col_o,
+    output logic [2:0]  cfg_row_o,
+    output logic [2:0]  cfg_col_o,
     output logic signed [15:0] cfg_real_o,
     output logic signed [15:0] cfg_imag_o,
+
+    output logic        mode_8x8_o,
 
     output logic        commit_valid_o,
     input  logic        commit_ready_i,
@@ -77,6 +79,8 @@ module axi_lite_regs (
     logic        write_align_error;
     logic        illegal_matrix_write;
     logic        illegal_commit;
+    logic        mode_write;
+    logic        mode_write_value;
     logic        clear_errors;
     logic [7:0]  error_w1c_mask;
 
@@ -104,9 +108,11 @@ module axi_lite_regs (
 
     always_comb begin
         cfg_valid_o = 1'b0;
-        cfg_bank_o = (awaddr_stored[9:8] == 2'b10);
-        cfg_row_o = awaddr_stored[5:4];
-        cfg_col_o = awaddr_stored[3:2];
+        cfg_bank_o = (awaddr_stored >= 32'h0000_0200);
+        cfg_row_o = mode_8x8_o ? awaddr_stored[7:5]
+                               : {1'b0,awaddr_stored[5:4]};
+        cfg_col_o = mode_8x8_o ? awaddr_stored[4:2]
+                               : {1'b0,awaddr_stored[3:2]};
         cfg_real_o = wdata_stored[31:16];
         cfg_imag_o = wdata_stored[15:0];
 
@@ -124,15 +130,21 @@ module axi_lite_regs (
         write_align_error = 1'b0;
         illegal_matrix_write = 1'b0;
         illegal_commit = 1'b0;
+        mode_write = 1'b0;
+        mode_write_value = mode_8x8_o;
 
         if (write_execute) begin
             if (awaddr_stored[1:0] != 2'b00) begin
                 write_response = AXI_SLVERR;
                 write_align_error = 1'b1;
             end else if (((awaddr_stored >= 32'h0000_0100)
-                          && (awaddr_stored <= 32'h0000_013c))
+                          && (awaddr_stored <= (mode_8x8_o
+                                               ? 32'h0000_01fc
+                                               : 32'h0000_013c)))
                          || ((awaddr_stored >= 32'h0000_0200)
-                             && (awaddr_stored <= 32'h0000_023c))) begin
+                             && (awaddr_stored <= (mode_8x8_o
+                                                  ? 32'h0000_02fc
+                                                  : 32'h0000_023c)))) begin
                 if ((wstrb_stored != 4'b1111) || !cfg_ready_i) begin
                     write_response = AXI_SLVERR;
                     illegal_matrix_write = 1'b1;
@@ -162,6 +174,19 @@ module axi_lite_regs (
                         end
                     end
                     32'h0000_0018: error_w1c_mask = write_data_masked[7:0];
+                    32'h0000_0040: begin
+                        if ((wstrb_stored != 4'b1111)
+                                || (write_data_masked[31:1] != 31'd0)
+                                || busy_i || commit_pending_i) begin
+                            write_response = AXI_SLVERR;
+                            illegal_matrix_write = 1'b1;
+                            if (wstrb_stored != 4'b1111)
+                                write_align_error = 1'b1;
+                        end else begin
+                            mode_write = 1'b1;
+                            mode_write_value = write_data_masked[0];
+                        end
+                    end
                     default: begin
                         write_response = AXI_SLVERR;
                         write_decode_error = 1'b1;
@@ -183,7 +208,7 @@ module axi_lite_regs (
         end else begin
             case (s_axil_araddr)
                 32'h0000_0000: read_data_next = 32'h4d50_5243;
-                32'h0000_0004: read_data_next = 32'h0001_0000;
+                32'h0000_0004: read_data_next = 32'h0002_0000;
                 32'h0000_000c: read_data_next = {
                     26'd0, bank_complete_i[1], bank_complete_i[0],
                     active_bank_i, commit_pending_i, matrix_complete_i, busy_i
@@ -200,6 +225,7 @@ module axi_lite_regs (
                 32'h0000_0034: read_data_next = saturation_count_i;
                 32'h0000_0038: read_data_next = cfg_write_count_i;
                 32'h0000_003c: read_data_next = commit_count_i;
+                32'h0000_0040: read_data_next = {31'd0,mode_8x8_o};
                 default: begin
                     read_response_next = AXI_SLVERR;
                     read_decode_error = 1'b1;
@@ -236,8 +262,11 @@ module axi_lite_regs (
             s_axil_rresp <= AXI_OKAY;
             error_status_o <= 8'd0;
             core_protocol_error_q <= 1'b0;
+            mode_8x8_o <= 1'b0;
         end else begin
             core_protocol_error_q <= core_protocol_error_i;
+            if (mode_write)
+                mode_8x8_o <= mode_write_value;
             if (s_axil_awvalid && s_axil_awready) begin
                 aw_stored <= 1'b1;
                 awaddr_stored <= s_axil_awaddr;

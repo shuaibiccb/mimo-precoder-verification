@@ -93,9 +93,11 @@ mimo-precoder/
 - 第一阶段：规格、浮点模型、位精确定点模型和测试，已完成；
 - 第二阶段：复数乘法器、复数 MAC、舍入与饱和 RTL，已完成；
 - 第三阶段：4x4 预编码核心和基础自检 testbench，已完成；
-- 第四阶段：流式接口、配置接口和矩阵双缓冲；
-- 第五阶段：UVM、SVA、功能覆盖率、随机回归和 PPA 分析；
-- 扩展阶段：4x4/8x8 动态配置、EVM 分析和最坏定点误差搜索。
+- 第四阶段：流式接口、配置接口和矩阵双缓冲，已完成；
+- 第五阶段：UVM、SVA、功能覆盖率、随机回归和 PPA 分析，已完成；
+- 第六至十二阶段：协议断言、覆盖率收敛、性能模型、最坏数值搜索和 NumPy 黄金模型联动，已完成；
+- 第十三阶段：4x4/8x8 动态配置，已完成；
+- 下一阶段：面向8x8的完整UVM参考模型和随机回归扩展。
 
 ## 当前验证结果
 
@@ -186,7 +188,7 @@ COVERAGE=1 bash sim/run_vcs.sh
 
 ## new第3阶段：AXI wrapper RTL
 
-`axi_precoder_wrapper.sv` 在已验证的 `precoder_core` 外增加32位AXI4-Stream输入/输出和32位AXI4-Lite控制接口，核心内部的简单 `valid/ready` 接口保持不变。AXI-Lite寄存器模块支持矩阵配置、Bank commit、状态/错误读取、W1C清错和性能计数器；流接口模块检查4拍向量的 `TLAST/TKEEP` 并直接传递背压。接口细节见 `docs/axi_interface.md`，定向测试已加入服务器统一VCS回归。
+`axi_precoder_wrapper.sv` 在已验证的 `precoder_core` 外增加32位AXI4-Stream输入/输出和32位AXI4-Lite控制接口，核心内部的简单 `valid/ready` 接口保持不变。AXI-Lite寄存器模块支持矩阵配置、Bank commit、状态/错误读取、W1C清错、MODE选择和性能计数器；流接口模块按4x4/8x8模式检查向量 `TLAST/TKEEP` 并直接传递背压。接口细节见 `docs/axi_interface.md`，定向测试已加入服务器统一VCS回归。
 
 ## new第4阶段：定向AXI接口验证
 
@@ -223,3 +225,10 @@ UVM新增独立性能monitor，逐周期预测并检查周期、输入/输出向
 ## new第12阶段：NumPy黄金模型与UVM端到端联动
 
 本地NumPy生成20个数据块、共1000个QPSK/16QAM/64QAM黄金向量，并记录Q1.14位精确输出、饱和标志、实现EVM、端到端EVM和SHA-256清单。服务器不运行Python，只由UVM读取ASCII黄金文件并逐拍比较RTL输出，同时交叉检查已有SystemVerilog scoreboard。正式20-seed回归通过，`UVM_ERROR/UVM_FATAL`均为0，详见 `docs/stage12_python_golden_regression.md`。
+## Current milestone
+
+Stage 13 adds runtime-selectable 4x4 and 8x8 operation. Reset selects 4x4 for
+backward compatibility. Software writes AXI4-Lite `MODE` at `0x040` to select
+8x8; each bank then accepts 64 Q1.14 coefficients and each stream transaction
+contains eight beats. See `docs/stage13_4x4_8x8_mode.md` and
+`tb/axi/tb_axi_precoder_8x8.sv` for the interface contract and end-to-end test.

@@ -14,7 +14,7 @@ module tb_axi_precoder_stress;
     logic awvalid, awready, wvalid, wready, bvalid, bready;
     logic arvalid, arready, rvalid, rready;
     logic [1:0] bresp, rresp;
-    logic [10:0] m_axis_tuser;
+    logic [11:0] m_axis_tuser;
 
     axi_precoder_wrapper dut (
         .aclk(aclk), .aresetn(aresetn), .s_axis_tdata(s_axis_tdata),

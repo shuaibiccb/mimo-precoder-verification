@@ -44,7 +44,7 @@ package precoder_uvm_pkg;
     class axi_stream_out_item extends uvm_sequence_item;
         bit signed [15:0] real_part;
         bit signed [15:0] imag_part;
-        bit [1:0] antenna;
+        bit [2:0] antenna;
         bit saturated;
         bit [7:0] version;
         bit last;
@@ -265,7 +265,7 @@ package precoder_uvm_pkg;
             forever begin
                 @(posedge vif.aclk);
                 if (vif.tvalid && vif.tready) begin
-                    tr=axi_stream_out_item::type_id::create("output_observed"); tr.real_part=vif.tdata[31:16]; tr.imag_part=vif.tdata[15:0]; tr.antenna=vif.tuser[1:0]; tr.saturated=vif.tuser[2]; tr.version=vif.tuser[10:3]; tr.last=vif.tlast; ap.write(tr);
+                    tr=axi_stream_out_item::type_id::create("output_observed"); tr.real_part=vif.tdata[31:16]; tr.imag_part=vif.tdata[15:0]; tr.antenna={vif.tuser[11],vif.tuser[1:0]}; tr.saturated=vif.tuser[2]; tr.version=vif.tuser[10:3]; tr.last=vif.tlast; ap.write(tr);
                 end
             end
         endtask
@@ -418,7 +418,7 @@ package precoder_uvm_pkg;
             if (!vector_active) begin
                 `uvm_error("REF_ORDER","output arrived before complete input vector"); return;
             end
-            if (tr.antenna !== output_index[1:0])
+            if (tr.antenna !== output_index[2:0])
                 `uvm_error("REF_ANTENNA",$sformatf("expected antenna %0d got %0d",output_index,tr.antenna));
             if (tr.last !== (output_index == 3))
                 `uvm_error("REF_LAST",$sformatf("bad TLAST on output %0d",output_index));
@@ -1023,7 +1023,7 @@ package precoder_uvm_pkg;
             real evm_delta;
             for (antenna=0;antenna<4;antenna=antenna+1) begin
                 env.output_fifo.get(out);
-                if (out.antenna !== antenna[1:0]) begin
+                if (out.antenna !== antenna[2:0]) begin
                     python_mismatch_count++;
                     `uvm_error("PY_ANTENNA",$sformatf("vector %0d expected antenna %0d got %0d",vector_record_index,antenna,out.antenna))
                 end

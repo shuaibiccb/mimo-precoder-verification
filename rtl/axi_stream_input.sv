@@ -3,6 +3,7 @@
 module axi_stream_input (
     input  logic        aclk,
     input  logic        aresetn,
+    input  logic        mode_8x8_i,
 
     input  logic [31:0] s_axis_tdata,
     input  logic [3:0]  s_axis_tkeep,
@@ -22,7 +23,8 @@ module axi_stream_input (
     output logic        invalid_tkeep_pulse_o
 );
 
-    logic [1:0] beat_index;
+    logic [2:0] beat_index;
+    logic [2:0] final_index;
     logic       handshake;
 
     assign core_valid_o = s_axis_tvalid;
@@ -32,19 +34,20 @@ module axi_stream_input (
     assign core_last_o = s_axis_tlast;
     assign handshake = s_axis_tvalid && s_axis_tready;
 
-    assign input_vector_pulse_o = handshake && (beat_index == 2'd3);
+    assign final_index = mode_8x8_i ? 3'd7 : 3'd3;
+    assign input_vector_pulse_o = handshake && (beat_index == final_index);
     assign early_tlast_pulse_o = handshake && s_axis_tlast
-                                && (beat_index != 2'd3);
+                                && (beat_index != final_index);
     assign missing_tlast_pulse_o = handshake && !s_axis_tlast
-                                  && (beat_index == 2'd3);
+                                  && (beat_index == final_index);
     assign invalid_tkeep_pulse_o = handshake && (s_axis_tkeep != 4'b1111);
 
     always_ff @(posedge aclk or negedge aresetn) begin
         if (!aresetn) begin
-            beat_index <= 2'd0;
+            beat_index <= 3'd0;
         end else if (handshake) begin
-            if (beat_index == 2'd3) begin
-                beat_index <= 2'd0;
+            if (beat_index == final_index) begin
+                beat_index <= 3'd0;
             end else begin
                 beat_index <= beat_index + 1'b1;
             end

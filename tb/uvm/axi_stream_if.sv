@@ -6,7 +6,7 @@ interface axi_stream_if(input logic aclk, input logic aresetn);
     logic        tvalid;
     logic        tready;
     logic        tlast;
-    logic [10:0] tuser;
+    logic [11:0] tuser;
 
     modport source(
         input  aclk, aresetn, tready,

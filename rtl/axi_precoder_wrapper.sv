@@ -18,7 +18,7 @@ module axi_precoder_wrapper #(
     output logic m_axis_tvalid,
     input logic m_axis_tready,
     output logic m_axis_tlast,
-    output logic [10:0] m_axis_tuser,
+    output logic [11:0] m_axis_tuser,
 
     input logic [31:0] s_axil_awaddr,
     input logic s_axil_awvalid,
@@ -40,7 +40,8 @@ module axi_precoder_wrapper #(
 );
 
     logic cfg_valid, cfg_ready, cfg_bank;
-    logic [1:0] cfg_row, cfg_col;
+    logic [2:0] cfg_row, cfg_col;
+    logic mode_8x8;
     logic signed [DATA_WIDTH-1:0] cfg_real, cfg_imag;
     logic [1:0] bank_complete;
     logic matrix_complete;
@@ -52,7 +53,7 @@ module axi_precoder_wrapper #(
     logic signed [DATA_WIDTH-1:0] in_real, in_imag;
     logic out_valid, out_ready, out_last, out_saturated;
     logic signed [DATA_WIDTH-1:0] out_real, out_imag;
-    logic [1:0] out_ant_idx;
+    logic [2:0] out_ant_idx;
     logic [VERSION_WIDTH-1:0] out_version;
     logic busy, protocol_error;
     logic input_vector_pulse, early_tlast_pulse, missing_tlast_pulse;
@@ -65,6 +66,7 @@ module axi_precoder_wrapper #(
 
     axi_stream_input u_stream_input (
         .aclk(aclk), .aresetn(aresetn),
+        .mode_8x8_i(mode_8x8),
         .s_axis_tdata(s_axis_tdata), .s_axis_tkeep(s_axis_tkeep),
         .s_axis_tvalid(s_axis_tvalid), .s_axis_tready(s_axis_tready),
         .s_axis_tlast(s_axis_tlast), .core_valid_o(in_valid),
@@ -100,6 +102,7 @@ module axi_precoder_wrapper #(
         .s_axil_rready(s_axil_rready), .cfg_valid_o(cfg_valid),
         .cfg_ready_i(cfg_ready), .cfg_bank_o(cfg_bank), .cfg_row_o(cfg_row),
         .cfg_col_o(cfg_col), .cfg_real_o(cfg_real), .cfg_imag_o(cfg_imag),
+        .mode_8x8_o(mode_8x8),
         .commit_valid_o(commit_valid), .commit_ready_i(commit_ready),
         .commit_bank_o(commit_bank), .commit_version_o(commit_version),
         .busy_i(busy), .matrix_complete_i(matrix_complete),
@@ -139,6 +142,7 @@ module axi_precoder_wrapper #(
         .VERSION_WIDTH(VERSION_WIDTH)
     ) u_precoder_core (
         .clk_i(aclk), .rst_ni(aresetn),
+        .mode_8x8_i(mode_8x8),
         .cfg_valid_i(cfg_valid), .cfg_ready_o(cfg_ready), .cfg_bank_i(cfg_bank),
         .cfg_row_i(cfg_row), .cfg_col_i(cfg_col), .cfg_real_i(cfg_real),
         .cfg_imag_i(cfg_imag), .bank_complete_o(bank_complete),

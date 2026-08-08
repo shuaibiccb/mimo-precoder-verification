@@ -3,11 +3,12 @@
 module precoder_core_sva (
     input logic               clk_i,
     input logic               rst_ni,
+    input logic               mode_8x8_i,
     input logic               cfg_valid_i,
     input logic               cfg_ready_o,
     input logic               cfg_bank_i,
-    input logic [1:0]         cfg_row_i,
-    input logic [1:0]         cfg_col_i,
+    input logic [2:0]         cfg_row_i,
+    input logic [2:0]         cfg_col_i,
     input logic signed [15:0] cfg_real_i,
     input logic signed [15:0] cfg_imag_i,
     input logic [1:0]         bank_complete_o,
@@ -25,7 +26,7 @@ module precoder_core_sva (
     input logic               out_ready_i,
     input logic signed [15:0] out_real_o,
     input logic signed [15:0] out_imag_o,
-    input logic [1:0]         out_ant_idx_o,
+    input logic [2:0]         out_ant_idx_o,
     input logic               out_last_o,
     input logic               out_saturated_o,
     input logic [7:0]         out_version_o,
@@ -34,7 +35,10 @@ module precoder_core_sva (
     input logic               busy_o,
     input logic               mac_clear,
     input logic               mac_enable,
+    input logic               vector_start,
+    input logic               group_clear,
     input logic               transaction_bank,
+    input logic               transaction_mode_8x8,
     input logic [7:0]         transaction_version,
     input logic [7:0]         result_version
 );
@@ -53,7 +57,7 @@ module precoder_core_sva (
             bank_switch_count <= 0;
             previous_active_bank <= 1'b0;
         end else begin
-            if (mac_clear)
+            if (vector_start)
                 accepted_vector_count <= accepted_vector_count + 1;
             if (out_valid_o && out_ready_i && out_last_o)
                 completed_vector_count <= completed_vector_count + 1;
@@ -80,7 +84,8 @@ module precoder_core_sva (
 
     property p_last_only_on_final_antenna;
         @(posedge clk_i) disable iff (!rst_ni)
-            out_last_o |-> out_valid_o && (out_ant_idx_o == 2'd3);
+            out_last_o |-> out_valid_o
+                && (out_ant_idx_o == (transaction_mode_8x8 ? 3'd7 : 3'd3));
     endproperty
 
     property p_reset_clears_visible_state;
@@ -114,12 +119,14 @@ module precoder_core_sva (
 
     property p_final_antenna_has_last;
         @(posedge clk_i) disable iff (!rst_ni)
-            out_valid_o && (out_ant_idx_o == 2'd3) |-> out_last_o;
+            out_valid_o
+                && (out_ant_idx_o == (transaction_mode_8x8 ? 3'd7 : 3'd3))
+            |-> out_last_o;
     endproperty
 
     property p_mac_clear_starts_vector;
         @(posedge clk_i) disable iff (!rst_ni)
-            mac_clear |-> in_valid_i && in_ready_o && !busy_o;
+            mac_clear |-> vector_start || group_clear;
     endproperty
 
     property p_mac_enable_only_while_busy;
@@ -130,7 +137,8 @@ module precoder_core_sva (
     property p_transaction_matrix_stable;
         @(posedge clk_i) disable iff (!rst_ni)
             busy_o && !(out_valid_o && out_ready_i && out_last_o)
-            |=> $stable({transaction_bank, transaction_version});
+            |=> $stable({transaction_bank, transaction_mode_8x8,
+                         transaction_version});
     endproperty
 
     property p_result_uses_transaction_version;
@@ -148,7 +156,7 @@ module precoder_core_sva (
     assert property (p_input_stable_while_stalled)
         else $error("input payload changed while stalled");
     assert property (p_last_only_on_final_antenna)
-        else $error("out_last asserted outside antenna 3");
+        else $error("out_last asserted outside the configured final antenna");
     assert property (p_reset_clears_visible_state)
         else $error("reset did not clear visible core state");
     assert property (p_active_matrix_stable_during_vector)
@@ -160,9 +168,9 @@ module precoder_core_sva (
     assert property (p_pending_clears_only_at_vector_boundary)
         else $error("pending commit cleared before the vector boundary");
     assert property (p_final_antenna_has_last)
-        else $error("antenna 3 output missing out_last");
+        else $error("configured final antenna output missing out_last");
     assert property (p_mac_clear_starts_vector)
-        else $error("MAC clear did not coincide with a new vector");
+        else $error("MAC clear did not coincide with a vector or row-group start");
     assert property (p_mac_enable_only_while_busy)
         else $error("MAC enabled outside the compute transaction");
     assert property (p_transaction_matrix_stable)
@@ -195,6 +203,7 @@ endmodule
 bind precoder_core precoder_core_sva u_precoder_core_sva (
     .clk_i(clk_i),
     .rst_ni(rst_ni),
+    .mode_8x8_i(mode_8x8_i),
     .cfg_valid_i(cfg_valid_i),
     .cfg_ready_o(cfg_ready_o),
     .cfg_bank_i(cfg_bank_i),
@@ -226,7 +235,10 @@ bind precoder_core precoder_core_sva u_precoder_core_sva (
     .busy_o(busy_o),
     .mac_clear(mac_clear),
     .mac_enable(mac_enable),
+    .vector_start(vector_start),
+    .group_clear(group_clear),
     .transaction_bank(transaction_bank),
+    .transaction_mode_8x8(transaction_mode_8x8),
     .transaction_version(transaction_version),
     .result_version(result_version)
 );

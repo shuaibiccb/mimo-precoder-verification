@@ -14,7 +14,7 @@ module tb_axi_precoder_wrapper;
     logic [31:0] m_axis_tdata;
     logic [3:0] m_axis_tkeep;
     logic m_axis_tvalid, m_axis_tready, m_axis_tlast;
-    logic [10:0] m_axis_tuser;
+    logic [11:0] m_axis_tuser;
     logic [31:0] awaddr, wdata, araddr, rdata;
     logic [3:0] wstrb;
     logic awvalid, awready, wvalid, wready, bvalid, bready;
@@ -182,7 +182,7 @@ module tb_axi_precoder_wrapper;
 
     logic [31:0] read_value;
     logic [31:0] stalled_data;
-    logic [10:0] stalled_user;
+    logic [11:0] stalled_user;
     integer idx;
 
     initial begin
@@ -198,7 +198,7 @@ module tb_axi_precoder_wrapper;
         axi_read(32'h000, OKAY, read_value);
         if (read_value !== 32'h4d50_5243) $fatal(1, "Bad IP_ID");
         axi_read(32'h004, OKAY, read_value);
-        if (read_value !== 32'h0001_0000) $fatal(1, "Bad IP_VERSION");
+        if (read_value !== 32'h0002_0000) $fatal(1, "Bad IP_VERSION");
 
         configure_identity(1'b0);
         axi_read(32'h00c, OKAY, read_value);

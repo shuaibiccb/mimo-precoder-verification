@@ -3,6 +3,7 @@
 module precoder_core_coverage (
     input logic       clk_i,
     input logic       rst_ni,
+    input logic       mode_8x8_i,
     input logic       cfg_valid_i,
     input logic       cfg_ready_o,
     input logic       cfg_bank_i,
@@ -19,7 +20,7 @@ module precoder_core_coverage (
     input logic       in_last_i,
     input logic       out_valid_o,
     input logic       out_ready_i,
-    input logic [1:0] out_ant_idx_o,
+    input logic [2:0] out_ant_idx_o,
     input logic       out_last_o,
     input logic       out_saturated_o,
     input logic [7:0] out_version_o,
@@ -33,6 +34,10 @@ module precoder_core_coverage (
         cp_cfg_bank: coverpoint cfg_bank_i iff (rst_ni && cfg_valid_i && cfg_ready_o) {
             bins bank0 = {0};
             bins bank1 = {1};
+        }
+        cp_mode: coverpoint mode_8x8_i iff (rst_ni) {
+            bins mode_4x4 = {0};
+            bins mode_8x8 = {1};
         }
         cp_bank_complete: coverpoint bank_complete_o iff (rst_ni) {
             bins empty = {2'b00};
@@ -72,7 +77,7 @@ module precoder_core_coverage (
             bins stalled = {1};
         }
         cp_output_ant: coverpoint out_ant_idx_o iff (rst_ni && out_valid_o && out_ready_i) {
-            bins antennas[] = {[0:3]};
+            bins antennas[] = {[0:7]};
         }
         cp_output_last: coverpoint out_last_o iff (rst_ni && out_valid_o && out_ready_i) {
             bins body = {0};
@@ -93,14 +98,7 @@ module precoder_core_coverage (
         }
 
         cross_commit_context: cross cp_commit_bank, cp_commit_busy;
-        cross_output_metadata: cross cp_output_ant, cp_output_last, cp_saturation {
-            ignore_bins last_before_final =
-                binsof(cp_output_ant) intersect {[0:2]} &&
-                binsof(cp_output_last.last);
-            ignore_bins missing_final_last =
-                binsof(cp_output_ant) intersect {3} &&
-                binsof(cp_output_last.body);
-        }
+        cross_mode_output: cross cp_mode, cp_output_ant;
     endgroup
 
     cg_precoder coverage = new();
@@ -110,6 +108,7 @@ endmodule
 bind precoder_core precoder_core_coverage u_precoder_core_coverage (
     .clk_i(clk_i),
     .rst_ni(rst_ni),
+    .mode_8x8_i(mode_8x8_i),
     .cfg_valid_i(cfg_valid_i),
     .cfg_ready_o(cfg_ready_o),
     .cfg_bank_i(cfg_bank_i),

@@ -80,6 +80,7 @@ if [[ "${COVERAGE:-0}" == "1" ]]; then
     build/vcs/coverage/precoder_core.vdb \
     build/vcs/coverage/precoder_hot_update.vdb \
     build/vcs/coverage/axi_precoder_wrapper.vdb \
+    build/vcs/coverage/axi_precoder_8x8.vdb \
     build/vcs/coverage/axi_precoder_stress.vdb \
     build/vcs/coverage/report
 fi
@@ -147,6 +148,20 @@ run_test axi_precoder_wrapper tb/axi/tb_axi_precoder_wrapper.sv \
   rtl/axi_precoder_wrapper.sv \
   tb/assertions/axi_precoder_sva.sv \
   "${axi_coverage_sources[@]}"
+run_test axi_precoder_8x8 tb/axi/tb_axi_precoder_8x8.sv \
+  rtl/complex_mult.sv \
+  rtl/complex_mac.sv \
+  rtl/fixed_round_sat.sv \
+  rtl/matrix_storage.sv \
+  rtl/symbol_buffer.sv \
+  rtl/precoder_core.sv \
+  rtl/axi_stream_input.sv \
+  rtl/axi_stream_output.sv \
+  rtl/performance_counters.sv \
+  rtl/axi_lite_regs.sv \
+  rtl/axi_precoder_wrapper.sv \
+  tb/assertions/axi_precoder_sva.sv \
+  "${axi_coverage_sources[@]}"
 run_test axi_precoder_stress tb/axi/tb_axi_precoder_stress.sv \
   rtl/complex_mult.sv \
   rtl/complex_mac.sv \
@@ -166,13 +181,16 @@ if [[ "${COVERAGE:-0}" == "1" ]]; then
   core_vdb="build/vcs/coverage/precoder_core.vdb"
   hot_update_vdb="build/vcs/coverage/precoder_hot_update.vdb"
   axi_wrapper_vdb="build/vcs/coverage/axi_precoder_wrapper.vdb"
+  axi_8x8_vdb="build/vcs/coverage/axi_precoder_8x8.vdb"
   axi_stress_vdb="build/vcs/coverage/axi_precoder_stress.vdb"
   if [[ ! -d "$core_vdb" || ! -d "$hot_update_vdb" \
-        || ! -d "$axi_wrapper_vdb" || ! -d "$axi_stress_vdb" ]]; then
+        || ! -d "$axi_wrapper_vdb" || ! -d "$axi_8x8_vdb" \
+        || ! -d "$axi_stress_vdb" ]]; then
     echo "ERROR: VCS completed without producing the expected coverage databases" >&2
     exit 1
   fi
-  urg -full64 -dir "$core_vdb" "$hot_update_vdb" "$axi_wrapper_vdb" "$axi_stress_vdb" \
+  urg -full64 -dir "$core_vdb" "$hot_update_vdb" "$axi_wrapper_vdb" \
+    "$axi_8x8_vdb" "$axi_stress_vdb" \
     -flex_merge drop -flex_merge modules \
     -report build/vcs/coverage/report \
     -log build/vcs/coverage/urg.log

@@ -7,12 +7,13 @@ module precoder_core #(
 ) (
     input  logic                         clk_i,
     input  logic                         rst_ni,
+    input  logic                         mode_8x8_i,
 
     input  logic                         cfg_valid_i,
     output logic                         cfg_ready_o,
     input  logic                         cfg_bank_i,
-    input  logic [1:0]                   cfg_row_i,
-    input  logic [1:0]                   cfg_col_i,
+    input  logic [2:0]                   cfg_row_i,
+    input  logic [2:0]                   cfg_col_i,
     input  logic signed [DATA_WIDTH-1:0] cfg_real_i,
     input  logic signed [DATA_WIDTH-1:0] cfg_imag_i,
     output logic [1:0]                   bank_complete_o,
@@ -36,7 +37,7 @@ module precoder_core #(
     input  logic                         out_ready_i,
     output logic signed [DATA_WIDTH-1:0] out_real_o,
     output logic signed [DATA_WIDTH-1:0] out_imag_o,
-    output logic [1:0]                   out_ant_idx_o,
+    output logic [2:0]                   out_ant_idx_o,
     output logic                         out_last_o,
     output logic                         out_saturated_o,
     output logic [VERSION_WIDTH-1:0]     out_version_o,
@@ -54,9 +55,10 @@ module precoder_core #(
     } state_t;
 
     state_t state;
-    logic [1:0] symbol_write_idx;
-    logic [1:0] compute_idx;
-    logic [1:0] output_idx;
+    logic [2:0] symbol_write_idx;
+    logic [2:0] compute_idx;
+    logic [2:0] output_idx;
+    logic       row_group;
     logic       cfg_write;
     logic       symbol_write;
     logic       input_handshake;
@@ -64,11 +66,15 @@ module precoder_core #(
     logic       commit_handshake;
     logic       mac_clear;
     logic       mac_enable;
+    logic       vector_start;
+    logic       group_clear;
     logic       pending_bank;
     logic [VERSION_WIDTH-1:0] pending_version;
     logic       transaction_bank;
+    logic       transaction_mode_8x8;
     logic [VERSION_WIDTH-1:0] transaction_version;
     logic [VERSION_WIDTH-1:0] result_version;
+    logic [2:0] transaction_last_index;
 
     logic signed [DATA_WIDTH-1:0] symbol_real;
     logic signed [DATA_WIDTH-1:0] symbol_imag;
@@ -80,9 +86,9 @@ module precoder_core #(
     logic signed [DATA_WIDTH-1:0] rounded_imag [0:3];
     logic                         sat_real [0:3];
     logic                         sat_imag [0:3];
-    logic signed [DATA_WIDTH-1:0] result_real [0:3];
-    logic signed [DATA_WIDTH-1:0] result_imag [0:3];
-    logic                         result_sat [0:3];
+    logic signed [DATA_WIDTH-1:0] result_real [0:7];
+    logic signed [DATA_WIDTH-1:0] result_imag [0:7];
+    logic                         result_sat [0:7];
 
     assign cfg_ready_o = ((state == ST_IDLE) || (cfg_bank_i != active_bank_o))
                        && (!commit_pending_o || (cfg_bank_i != pending_bank));
@@ -102,10 +108,13 @@ module precoder_core #(
     assign out_valid_o = (state == ST_OUTPUT);
     assign output_handshake = out_valid_o && out_ready_i;
     assign out_ant_idx_o = output_idx;
-    assign out_last_o = out_valid_o && (output_idx == 2'd3);
+    assign transaction_last_index = transaction_mode_8x8 ? 3'd7 : 3'd3;
+    assign out_last_o = out_valid_o && (output_idx == transaction_last_index);
     assign out_version_o = result_version;
     assign busy_o = (state != ST_IDLE);
-    assign mac_clear = input_handshake && (state == ST_IDLE);
+    assign vector_start = input_handshake && (state == ST_IDLE);
+    assign group_clear = (state == ST_CAPTURE) && transaction_mode_8x8 && !row_group;
+    assign mac_clear = vector_start || group_clear;
     assign mac_enable = (state == ST_COMPUTE);
 
     matrix_storage #(
@@ -113,6 +122,7 @@ module precoder_core #(
     ) u_matrix_storage (
         .clk_i(clk_i),
         .rst_ni(rst_ni),
+        .mode_8x8_i(mode_8x8_i),
         .write_en_i(cfg_write),
         .write_bank_i(cfg_bank_i),
         .write_row_i(cfg_row_i),
@@ -120,6 +130,7 @@ module precoder_core #(
         .write_real_i(cfg_real_i),
         .write_imag_i(cfg_imag_i),
         .read_bank_i(transaction_bank),
+        .read_row_group_i(row_group),
         .read_col_i(compute_idx),
         .row0_real_o(coeff_real[0]),
         .row0_imag_o(coeff_imag[0]),
@@ -189,38 +200,21 @@ module precoder_core #(
         end
     endgenerate
 
-    always @(*) begin
-        case (output_idx)
-            2'd0: begin
-                out_real_o = result_real[0];
-                out_imag_o = result_imag[0];
-                out_saturated_o = result_sat[0];
-            end
-            2'd1: begin
-                out_real_o = result_real[1];
-                out_imag_o = result_imag[1];
-                out_saturated_o = result_sat[1];
-            end
-            2'd2: begin
-                out_real_o = result_real[2];
-                out_imag_o = result_imag[2];
-                out_saturated_o = result_sat[2];
-            end
-            default: begin
-                out_real_o = result_real[3];
-                out_imag_o = result_imag[3];
-                out_saturated_o = result_sat[3];
-            end
-        endcase
+    always_comb begin
+        out_real_o = result_real[output_idx];
+        out_imag_o = result_imag[output_idx];
+        out_saturated_o = result_sat[output_idx];
     end
 
     integer result_idx;
+    integer capture_idx;
     always_ff @(posedge clk_i or negedge rst_ni) begin
         if (!rst_ni) begin
             state <= ST_IDLE;
             symbol_write_idx <= '0;
             compute_idx <= '0;
             output_idx <= '0;
+            row_group <= 1'b0;
             protocol_error_o <= 1'b0;
             commit_pending_o <= 1'b0;
             pending_bank <= 1'b0;
@@ -228,9 +222,10 @@ module precoder_core #(
             active_bank_o <= 1'b0;
             active_version_o <= '0;
             transaction_bank <= 1'b0;
+            transaction_mode_8x8 <= 1'b0;
             transaction_version <= '0;
             result_version <= '0;
-            for (result_idx = 0; result_idx < 4; result_idx = result_idx + 1) begin
+            for (result_idx = 0; result_idx < 8; result_idx = result_idx + 1) begin
                 result_real[result_idx] <= '0;
                 result_imag[result_idx] <= '0;
                 result_sat[result_idx] <= 1'b0;
@@ -238,7 +233,7 @@ module precoder_core #(
         end else begin
             if (commit_handshake && (state != ST_IDLE)
                     && !((state == ST_OUTPUT) && output_handshake
-                         && (output_idx == 2'd3))) begin
+                         && (output_idx == transaction_last_index))) begin
                 commit_pending_o <= 1'b1;
                 pending_bank <= commit_bank_i;
                 pending_version <= commit_version_i;
@@ -249,6 +244,7 @@ module precoder_core #(
                     symbol_write_idx <= '0;
                     compute_idx <= '0;
                     output_idx <= '0;
+                    row_group <= 1'b0;
                     if (commit_handshake) begin
                         active_bank_o <= commit_bank_i;
                         active_version_o <= commit_version_i;
@@ -256,20 +252,22 @@ module precoder_core #(
                     end else if (input_handshake) begin
                         protocol_error_o <= in_last_i;
                         transaction_bank <= active_bank_o;
+                        transaction_mode_8x8 <= mode_8x8_i;
                         transaction_version <= active_version_o;
-                        symbol_write_idx <= 2'd1;
+                        symbol_write_idx <= 3'd1;
                         state <= ST_LOAD;
                     end
                 end
 
                 ST_LOAD: begin
                     if (input_handshake) begin
-                        if (in_last_i != (symbol_write_idx == 2'd3)) begin
+                        if (in_last_i != (symbol_write_idx == transaction_last_index)) begin
                             protocol_error_o <= 1'b1;
                         end
-                        if (symbol_write_idx == 2'd3) begin
+                        if (symbol_write_idx == transaction_last_index) begin
                             compute_idx <= '0;
                             symbol_write_idx <= '0;
+                            row_group <= 1'b0;
                             state <= ST_COMPUTE;
                         end else begin
                             symbol_write_idx <= symbol_write_idx + 1'b1;
@@ -278,7 +276,7 @@ module precoder_core #(
                 end
 
                 ST_COMPUTE: begin
-                    if (compute_idx == 2'd3) begin
+                    if (compute_idx == transaction_last_index) begin
                         state <= ST_CAPTURE;
                     end else begin
                         compute_idx <= compute_idx + 1'b1;
@@ -286,19 +284,26 @@ module precoder_core #(
                 end
 
                 ST_CAPTURE: begin
-                    for (result_idx = 0; result_idx < 4; result_idx = result_idx + 1) begin
-                        result_real[result_idx] <= rounded_real[result_idx];
-                        result_imag[result_idx] <= rounded_imag[result_idx];
-                        result_sat[result_idx] <= sat_real[result_idx] || sat_imag[result_idx];
+                    for (capture_idx = 0; capture_idx < 4; capture_idx = capture_idx + 1) begin
+                        result_real[(row_group ? 4 : 0)+capture_idx] <= rounded_real[capture_idx];
+                        result_imag[(row_group ? 4 : 0)+capture_idx] <= rounded_imag[capture_idx];
+                        result_sat[(row_group ? 4 : 0)+capture_idx]
+                            <= sat_real[capture_idx] || sat_imag[capture_idx];
                     end
-                    result_version <= transaction_version;
-                    output_idx <= '0;
-                    state <= ST_OUTPUT;
+                    if (transaction_mode_8x8 && !row_group) begin
+                        row_group <= 1'b1;
+                        compute_idx <= '0;
+                        state <= ST_COMPUTE;
+                    end else begin
+                        result_version <= transaction_version;
+                        output_idx <= '0;
+                        state <= ST_OUTPUT;
+                    end
                 end
 
                 ST_OUTPUT: begin
                     if (output_handshake) begin
-                        if (output_idx == 2'd3) begin
+                        if (output_idx == transaction_last_index) begin
                             if (commit_pending_o) begin
                                 active_bank_o <= pending_bank;
                                 active_version_o <= pending_version;

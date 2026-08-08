@@ -129,3 +129,7 @@ UVM性能monitor对周期、输入/输出向量、输入/输出阻塞、饱和�
 ## new第12阶段 NumPy黄金模型与UVM端到端联动
 
 本地NumPy生成可追溯的ASCII黄金向量和JSON清单，服务器通过VCS/UVM读取文件，不依赖Python 3.10或NumPy。每个数据块覆盖一套QPSK/16QAM/64QAM输入、两个4x4矩阵、Bank0到Bank1忙时切换和50个向量；20个数据块共1000个向量。UVM逐拍比较数值、饱和、`TLAST`、天线编号、矩阵版本和实现EVM，正式回归全部通过。详见 `docs/stage12_python_golden_regression.md`。
+
+## new第13阶段 4x4/8x8运行时模式验证
+
+`tb/axi/tb_axi_precoder_8x8.sv` 在服务器VCS下验证运行时模式寄存器、两个8x8矩阵Bank的64项系数写入、8拍输入和8拍输出、天线0～7的`TUSER`/`TLAST`元数据、输出反压，以及忙时MODE写保护和pending commit在事务边界生效。复位默认4x4的旧wrapper回归、AXI stress回归和第12阶段Python黄金测试同时通过。详细契约见 `docs/stage13_4x4_8x8_mode.md`。

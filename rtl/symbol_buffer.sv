@@ -6,21 +6,21 @@ module symbol_buffer #(
     input  logic                         clk_i,
     input  logic                         rst_ni,
     input  logic                         write_en_i,
-    input  logic [1:0]                   write_idx_i,
+    input  logic [2:0]                   write_idx_i,
     input  logic signed [DATA_WIDTH-1:0] write_real_i,
     input  logic signed [DATA_WIDTH-1:0] write_imag_i,
-    input  logic [1:0]                   read_idx_i,
+    input  logic [2:0]                   read_idx_i,
     output logic signed [DATA_WIDTH-1:0] read_real_o,
     output logic signed [DATA_WIDTH-1:0] read_imag_o
 );
 
-    logic signed [DATA_WIDTH-1:0] symbol_real [0:3];
-    logic signed [DATA_WIDTH-1:0] symbol_imag [0:3];
+    logic signed [DATA_WIDTH-1:0] symbol_real [0:7];
+    logic signed [DATA_WIDTH-1:0] symbol_imag [0:7];
     integer idx;
 
     always_ff @(posedge clk_i or negedge rst_ni) begin
         if (!rst_ni) begin
-            for (idx = 0; idx < 4; idx = idx + 1) begin
+            for (idx = 0; idx < 8; idx = idx + 1) begin
                 symbol_real[idx] <= '0;
                 symbol_imag[idx] <= '0;
             end
@@ -34,4 +34,3 @@ module symbol_buffer #(
     assign read_imag_o = symbol_imag[read_idx_i];
 
 endmodule
-

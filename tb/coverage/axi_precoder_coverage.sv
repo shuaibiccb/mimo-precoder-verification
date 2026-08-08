@@ -3,6 +3,7 @@
 module axi_precoder_coverage (
     input logic        aclk,
     input logic        aresetn,
+    input logic        mode_8x8,
     input logic [3:0]  s_axis_tkeep,
     input logic        s_axis_tvalid,
     input logic        s_axis_tready,
@@ -10,7 +11,7 @@ module axi_precoder_coverage (
     input logic        m_axis_tvalid,
     input logic        m_axis_tready,
     input logic        m_axis_tlast,
-    input logic [10:0] m_axis_tuser,
+    input logic [11:0] m_axis_tuser,
     input logic        s_axil_awvalid,
     input logic        s_axil_awready,
     input logic [3:0]  s_axil_wstrb,
@@ -48,6 +49,10 @@ module axi_precoder_coverage (
             bins w_first = {2'b01};
             bins together = {2'b11};
         }
+        cp_mode: coverpoint mode_8x8 iff (aresetn) {
+            bins mode_4x4 = {0};
+            bins mode_8x8 = {1};
+        }
         cp_write_response: coverpoint s_axil_bresp
             iff (aresetn && s_axil_bvalid && s_axil_bready) {
             bins okay = {2'b00};
@@ -75,9 +80,9 @@ module axi_precoder_coverage (
             bins valid = {4'hf};
             bins invalid = {[4'h0:4'he]};
         }
-        cp_output_ant: coverpoint m_axis_tuser[1:0]
+        cp_output_ant: coverpoint {m_axis_tuser[11],m_axis_tuser[1:0]}
             iff (aresetn && m_axis_tvalid && m_axis_tready) {
-            bins antennas[] = {[0:3]};
+            bins antennas[] = {[0:7]};
         }
         cp_output_last: coverpoint m_axis_tlast
             iff (aresetn && m_axis_tvalid && m_axis_tready);
@@ -103,12 +108,7 @@ module axi_precoder_coverage (
         cp_saturation: coverpoint saturation_pulse iff (aresetn) {
             bins seen = {1'b1};
         }
-        x_output_boundary: cross cp_output_ant, cp_output_last {
-            ignore_bins nonfinal_last = binsof(cp_output_ant) intersect {[0:2]}
-                                      && binsof(cp_output_last) intersect {1};
-            ignore_bins final_without_last = binsof(cp_output_ant) intersect {3}
-                                           && binsof(cp_output_last) intersect {0};
-        }
+        x_mode_output: cross cp_mode, cp_output_ant;
     endgroup
 
     cg_axi_precoder coverage = new();

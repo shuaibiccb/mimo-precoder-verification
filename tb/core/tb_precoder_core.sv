@@ -6,8 +6,8 @@ module tb_precoder_core;
     logic cfg_valid;
     logic cfg_ready;
     logic cfg_bank;
-    logic [1:0] cfg_row;
-    logic [1:0] cfg_col;
+    logic [2:0] cfg_row;
+    logic [2:0] cfg_col;
     logic signed [15:0] cfg_real;
     logic signed [15:0] cfg_imag;
     logic [1:0] bank_complete;
@@ -28,7 +28,7 @@ module tb_precoder_core;
     logic out_ready;
     logic signed [15:0] out_real;
     logic signed [15:0] out_imag;
-    logic [1:0] out_ant_idx;
+    logic [2:0] out_ant_idx;
     logic out_last;
     logic out_saturated;
     logic [7:0] out_version;
@@ -63,6 +63,7 @@ module tb_precoder_core;
     precoder_core dut (
         .clk_i(clk),
         .rst_ni(rst_n),
+        .mode_8x8_i(1'b0),
         .cfg_valid_i(cfg_valid),
         .cfg_ready_o(cfg_ready),
         .cfg_bank_i(cfg_bank),
@@ -135,8 +136,8 @@ module tb_precoder_core;
         begin
             @(negedge clk);
             cfg_bank  = bank_value;
-            cfg_row   = row[1:0];
-            cfg_col   = col[1:0];
+            cfg_row   = row[2:0];
+            cfg_col   = col[2:0];
             cfg_real  = real_value;
             cfg_imag  = imag_value;
             cfg_valid = 1'b1;
@@ -312,7 +313,7 @@ module tb_precoder_core;
             end
 
             #1;
-            if ((out_ant_idx !== expected_idx[1:0])
+            if ((out_ant_idx !== expected_idx[2:0])
                     || (out_real !== expected_real[expected_idx])
                     || (out_imag !== expected_imag[expected_idx])
                     || (out_saturated !== expected_sat[expected_idx])
@@ -403,7 +404,7 @@ module tb_precoder_core;
                     $fatal(1, "output payload changed while stalled");
                 end
             end
-            if (out_last && (out_ant_idx != 2'd3)) begin
+            if (out_last && (out_ant_idx != 3'd3)) begin
                 $fatal(1, "out_last asserted on the wrong antenna");
             end
             previous_stall    <= out_valid && !out_ready;

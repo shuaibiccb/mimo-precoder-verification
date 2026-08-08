@@ -5,7 +5,7 @@ module axi_stream_output (
     output logic        core_ready_o,
     input  logic signed [15:0] core_real_i,
     input  logic signed [15:0] core_imag_i,
-    input  logic [1:0]  core_ant_idx_i,
+    input  logic [2:0]  core_ant_idx_i,
     input  logic        core_last_i,
     input  logic        core_saturated_i,
     input  logic [7:0]  core_version_i,
@@ -15,7 +15,7 @@ module axi_stream_output (
     output logic        m_axis_tvalid,
     input  logic        m_axis_tready,
     output logic        m_axis_tlast,
-    output logic [10:0] m_axis_tuser,
+    output logic [11:0] m_axis_tuser,
 
     output logic        output_vector_pulse_o,
     output logic        saturation_pulse_o
@@ -28,7 +28,10 @@ module axi_stream_output (
     assign m_axis_tkeep = 4'b1111;
     assign m_axis_tvalid = core_valid_i;
     assign m_axis_tlast = core_last_i;
-    assign m_axis_tuser = {core_version_i, core_saturated_i, core_ant_idx_i};
+    assign m_axis_tuser[1:0] = core_ant_idx_i[1:0];
+    assign m_axis_tuser[2] = core_saturated_i;
+    assign m_axis_tuser[10:3] = core_version_i;
+    assign m_axis_tuser[11] = core_ant_idx_i[2];
 
     assign handshake = m_axis_tvalid && m_axis_tready;
     assign output_vector_pulse_o = handshake && m_axis_tlast;

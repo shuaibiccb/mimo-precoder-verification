@@ -3,7 +3,7 @@
 module tb_precoder_hot_update;
     logic clk, rst_n;
     logic cfg_valid, cfg_ready, cfg_bank;
-    logic [1:0] cfg_row, cfg_col;
+    logic [2:0] cfg_row, cfg_col;
     logic signed [15:0] cfg_real, cfg_imag;
     logic [1:0] bank_complete;
     logic matrix_complete;
@@ -14,7 +14,7 @@ module tb_precoder_hot_update;
     logic signed [15:0] in_real, in_imag;
     logic out_valid, out_ready, out_last, out_saturated;
     logic signed [15:0] out_real, out_imag;
-    logic [1:0] out_ant_idx;
+    logic [2:0] out_ant_idx;
     logic busy, protocol_error;
 
     logic signed [15:0] matrix_real [0:1][0:15];
@@ -31,6 +31,7 @@ module tb_precoder_hot_update;
 
     precoder_core dut (
         .clk_i(clk), .rst_ni(rst_n),
+        .mode_8x8_i(1'b0),
         .cfg_valid_i(cfg_valid), .cfg_ready_o(cfg_ready), .cfg_bank_i(cfg_bank),
         .cfg_row_i(cfg_row), .cfg_col_i(cfg_col), .cfg_real_i(cfg_real), .cfg_imag_i(cfg_imag),
         .bank_complete_o(bank_complete), .matrix_complete_o(matrix_complete),
@@ -53,7 +54,7 @@ module tb_precoder_hot_update;
                                input logic signed [15:0] im);
         begin
             @(negedge clk);
-            cfg_bank = bank; cfg_row = r[1:0]; cfg_col = c[1:0];
+            cfg_bank = bank; cfg_row = r[2:0]; cfg_col = c[2:0];
             cfg_real = re; cfg_imag = im; cfg_valid = 1'b1;
             timeout_count = 0;
             while (!cfg_ready && timeout_count < 50) begin
@@ -101,7 +102,7 @@ module tb_precoder_hot_update;
                 end
                 if (!out_valid) $fatal(1, "output timeout");
                 #1;
-                if ((out_ant_idx !== ant[1:0]) || (out_real !== expected_real[case_idx][ant])
+                if ((out_ant_idx !== ant[2:0]) || (out_real !== expected_real[case_idx][ant])
                     || (out_imag !== expected_imag[case_idx][ant])
                     || (out_saturated !== expected_sat[case_idx][ant])
                     || (out_version !== version) || (out_last !== (ant == 3))) begin

@@ -3,6 +3,7 @@
 module axi_precoder_sva (
     input logic        aclk,
     input logic        aresetn,
+    input logic        mode_8x8,
     input logic [31:0] s_axis_tdata,
     input logic [3:0]  s_axis_tkeep,
     input logic        s_axis_tvalid,
@@ -13,7 +14,7 @@ module axi_precoder_sva (
     input logic        m_axis_tvalid,
     input logic        m_axis_tready,
     input logic        m_axis_tlast,
-    input logic [10:0] m_axis_tuser,
+    input logic [11:0] m_axis_tuser,
     input logic [31:0] s_axil_awaddr,
     input logic        s_axil_awvalid,
     input logic        s_axil_awready,
@@ -33,7 +34,8 @@ module axi_precoder_sva (
     input logic        s_axil_rready
 );
 
-    logic [1:0] expected_output_ant;
+    logic [2:0] expected_output_ant;
+    logic [2:0] input_vector_beat;
     logic [7:0] vector_version;
     logic aw_pending;
     logic w_pending;
@@ -49,7 +51,8 @@ module axi_precoder_sva (
 
     always_ff @(posedge aclk or negedge aresetn) begin
         if (!aresetn) begin
-            expected_output_ant <= 2'd0;
+            expected_output_ant <= 3'd0;
+            input_vector_beat <= 3'd0;
             vector_version <= 8'd0;
             aw_pending <= 1'b0;
             w_pending <= 1'b0;
@@ -62,12 +65,20 @@ module axi_precoder_sva (
         end else if (m_axis_tvalid && m_axis_tready) begin
             if (expected_output_ant == 2'd0)
                 vector_version <= m_axis_tuser[10:3];
-            expected_output_ant <= expected_output_ant + 1'b1;
+            if (m_axis_tlast)
+                expected_output_ant <= 3'd0;
+            else
+                expected_output_ant <= expected_output_ant + 1'b1;
             output_beat_count <= output_beat_count + 1;
         end
         if (aresetn) begin
-            if (s_axis_tvalid && s_axis_tready)
+            if (s_axis_tvalid && s_axis_tready) begin
                 input_beat_count <= input_beat_count + 1;
+                if (s_axis_tlast)
+                    input_vector_beat <= 3'd0;
+                else
+                    input_vector_beat <= input_vector_beat + 1'b1;
+            end
             if (s_axil_awvalid && s_axil_awready)
                 aw_pending <= 1'b1;
             if (s_axil_wvalid && s_axil_wready)
@@ -119,18 +130,20 @@ module axi_precoder_sva (
     property p_output_metadata;
         @(posedge aclk) disable iff (!aresetn)
         m_axis_tvalid |-> (m_axis_tkeep == 4'hf)
-            && (m_axis_tlast == (m_axis_tuser[1:0] == 2'd3));
+            && (m_axis_tlast
+                == ({m_axis_tuser[11],m_axis_tuser[1:0]}
+                    == (mode_8x8 ? 3'd7 : 3'd3)));
     endproperty
 
     property p_output_antenna_order;
         @(posedge aclk) disable iff (!aresetn)
         m_axis_tvalid && m_axis_tready |->
-            m_axis_tuser[1:0] == expected_output_ant;
+            {m_axis_tuser[11],m_axis_tuser[1:0]} == expected_output_ant;
     endproperty
 
     property p_version_stable_within_vector;
         @(posedge aclk) disable iff (!aresetn)
-        m_axis_tvalid && (expected_output_ant != 2'd0) |->
+        m_axis_tvalid && (expected_output_ant != 3'd0) |->
             m_axis_tuser[10:3] == vector_version;
     endproperty
 
@@ -158,7 +171,8 @@ module axi_precoder_sva (
         @(posedge aclk) disable iff (!aresetn)
         strict_input_protocol && s_axis_tvalid && s_axis_tready |->
             (s_axis_tkeep == 4'hf)
-            && (s_axis_tlast == (input_beat_count[1:0] == 2'd3));
+            && (s_axis_tlast
+                == (input_vector_beat == (mode_8x8 ? 3'd7 : 3'd3)));
     endproperty
 
     assert property (p_s_axis_stable_while_stalled)
@@ -184,7 +198,7 @@ module axi_precoder_sva (
     assert property (p_rresp_is_legal)
         else $error("AXI-Lite R response code is illegal");
     assert property (p_input_packet_shape)
-        else $error("AXI-Stream input packet is not a four-beat vector");
+        else $error("AXI-Stream input packet length does not match MODE");
 
     cover property (@(posedge aclk) disable iff (!aresetn)
         s_axil_awvalid && s_axil_awready ##[1:8]

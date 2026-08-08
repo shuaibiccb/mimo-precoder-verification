@@ -21,7 +21,7 @@ precoder_core
 
 本阶段只定义规格，不修改已经完成综合和后布线验证的 `precoder_core`。
 
-## 2. 第一版固定范围
+## 2. 当前接口范围
 
 - 4x4复数矩阵向量乘法；
 - 16位有符号Q14实部和虚部；
@@ -31,7 +31,8 @@ precoder_core
 - AXI接口和计算核心共用一个时钟 `aclk`；
 - 低有效复位 `aresetn` 直接连接核心 `rst_ni`；
 - 只允许一个计算事务在途；
-- 不包含CDC、异步FIFO、中断、8x8和12位模式。
+- 不包含CDC、异步FIFO、中断和多事务并发。
+- 复位默认4x4；通过`MODE`寄存器可运行时选择8x8。
 
 ## 3. 顶层模块边界
 
@@ -70,9 +71,8 @@ s_axis_tdata[15:0]  = signed imag Q14
 
 ### 4.2 向量边界
 
-- 一个输入向量固定包含4拍；
-- 第0、1、2拍的 `TLAST` 必须为0；
-- 第3拍的 `TLAST` 必须为1；
+- 4x4模式一个输入向量固定包含4拍；8x8模式固定包含8拍；
+- 当前模式的最后一拍 `TLAST` 必须为1，其余拍必须为0；
 - 只有 `TVALID && TREADY` 时才接收一拍；
 - `TVALID && !TREADY` 时，发送方必须保持 `TDATA/TKEEP/TLAST` 稳定；
 - wrapper不得在核心不能接收时提前吞掉输入数据。
@@ -104,7 +104,7 @@ in_last_i = s_axis_tlast
 | `m_axis_tvalid` | 输出 | 1 | 输出有效 |
 | `m_axis_tready` | 输入 | 1 | 下游可以接收 |
 | `m_axis_tlast` | 输出 | 1 | 输出向量的最后一拍 |
-| `m_axis_tuser` | 输出 | 11 | 天线编号、饱和标志和矩阵版本 |
+| `m_axis_tuser` | 输出 | 12 | 天线编号、饱和标志和矩阵版本 |
 
 数据布局固定为：
 
@@ -112,15 +112,16 @@ in_last_i = s_axis_tlast
 m_axis_tdata[31:16] = signed real Q14
 m_axis_tdata[15:0]  = signed imag Q14
 
-m_axis_tuser[1:0]   = antenna_index
+m_axis_tuser[1:0]   = antenna_index[1:0]
 m_axis_tuser[2]     = saturated
 m_axis_tuser[10:3]  = matrix_version
+m_axis_tuser[11]    = antenna_index[2]
 ```
 
 ### 5.2 输出规则
 
-- 一个输出向量固定包含4拍，天线编号依次为0、1、2、3；
-- 只有天线3对应的拍允许 `TLAST=1`；
+- 4x4模式输出4拍、天线编号0～3；8x8模式输出8拍、天线编号0～7；
+- 只有当前模式最后一个天线对应的拍允许 `TLAST=1`；
 - `TVALID && !TREADY` 时，`TDATA/TKEEP/TLAST/TUSER` 必须保持稳定；
 - wrapper不增加输出重排序，不缓存第二个计算事务；
 - 输出反压直接传递给 `precoder_core.out_ready_i`。
@@ -132,7 +133,8 @@ m_axis_tvalid = out_valid_o
 out_ready_i = m_axis_tready
 m_axis_tdata = {out_real_o, out_imag_o}
 m_axis_tlast = out_last_o
-m_axis_tuser = {out_version_o, out_saturated_o, out_ant_idx_o}
+m_axis_tuser = {out_ant_idx_o[2], out_version_o, out_saturated_o,
+                out_ant_idx_o[1:0]}
 ```
 
 ## 6. AXI4-Lite协议
@@ -154,7 +156,7 @@ m_axis_tuser = {out_version_o, out_saturated_o, out_ant_idx_o}
 | 地址 | 名称 | 属性 | 定义 |
 |---:|---|---|---|
 | `0x000` | `IP_ID` | RO | 固定为 `32'h4D50_5243`，ASCII `MPRC` |
-| `0x004` | `IP_VERSION` | RO | 第一版固定为 `32'h0001_0000` |
+| `0x004` | `IP_VERSION` | RO | 当前接口版本为 `32'h0002_0000` |
 | `0x008` | `CONTROL` | WO | bit0清性能计数器，bit1清错误状态，写1产生单周期脉冲 |
 | `0x00C` | `STATUS` | RO | 核心状态与Bank完整状态 |
 | `0x010` | `COMMIT` | WO | 提交矩阵Bank和版本 |
@@ -168,8 +170,9 @@ m_axis_tuser = {out_version_o, out_saturated_o, out_ant_idx_o}
 | `0x034` | `SATURATION_COUNT` | RO | 完成握手且饱和的输出拍数 |
 | `0x038` | `CFG_WRITE_COUNT` | RO | 成功写入的矩阵系数数 |
 | `0x03C` | `COMMIT_COUNT` | RO | 成功接受的commit数 |
-| `0x100`～`0x13C` | `BANK0_MATRIX` | WO | Bank0的16个复数系数 |
-| `0x200`～`0x23C` | `BANK1_MATRIX` | WO | Bank1的16个复数系数 |
+| `0x040` | `MODE` | RW | bit0=0选择4x4，bit0=1选择8x8；仅空闲且无pending commit时可写 |
+| `0x100`～`0x1FC` | `BANK0_MATRIX` | WO | 4x4模式前16项；8x8模式64个复数系数 |
+| `0x200`～`0x2FC` | `BANK1_MATRIX` | WO | 4x4模式前16项；8x8模式64个复数系数 |
 
 所有计数器为32位无符号回绕计数器。第一版不产生计数器溢出中断。
 
@@ -230,7 +233,7 @@ bits31:8 reserved
 每个Bank包含16个32位系数，地址计算为：
 
 ```text
-index = row * 4 + column
+index = row * N + column, N = 4 (4x4) or 8 (8x8)
 bank0_address = 0x100 + index * 4
 bank1_address = 0x200 + index * 4
 ```
@@ -242,7 +245,7 @@ WDATA[31:16] = signed coefficient_real Q14
 WDATA[15:0]  = signed coefficient_imag Q14
 ```
 
-矩阵窗口第一版为只写窗口，不提供矩阵回读。读取矩阵窗口返回 `SLVERR`。
+矩阵窗口为只写窗口，不提供矩阵回读。读取矩阵窗口返回 `SLVERR`。
 当核心 `cfg_ready_o=0` 时，写操作不进入核心，返回 `SLVERR` 并置位
 `illegal_matrix_write`。
 
@@ -284,13 +287,13 @@ rtl/axi_precoder_wrapper.sv
 
 - AXI wrapper与 `precoder_core` 的边界明确；
 - 输入和输出数据位序唯一且无歧义；
-- 4拍向量和 `TLAST` 规则明确；
+- 4x4/8x8向量和 `TLAST` 规则明确；
 - `TUSER` 中天线、饱和和版本字段明确；
 - AXI-Lite AW/W独立通道行为明确；
 - 矩阵地址、Bank、行列和复数数据映射明确；
 - commit成功和失败条件明确；
 - 错误位清除方式和性能计数方式明确；
 - reset、背压和非法访问行为明确；
-- 8x8、12位、CDC、中断和多事务并发明确排除在第一版之外。
+- CDC、中断和多事务并发明确排除在当前版本之外。
 
 满足以上条件后，new第2阶段完成，下一阶段进入 `axi_precoder_wrapper` RTL实现。
