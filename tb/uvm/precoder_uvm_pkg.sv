@@ -290,22 +290,22 @@ package precoder_uvm_pkg;
     endclass
 
     // The scoreboard mirrors both coefficient banks from completed AXI-Lite
-    // writes. A matrix/version snapshot is taken when the fourth input beat is
-    // accepted, so a busy commit cannot change an in-flight vector.
+    // writes. Mode, bank, and version are snapshotted at transaction start so
+    // a busy commit or mode request cannot change an in-flight vector.
     class precoder_scoreboard extends uvm_component;
         `uvm_component_utils(precoder_scoreboard)
         uvm_analysis_imp_input#(axi_stream_in_item, precoder_scoreboard) input_imp;
         uvm_analysis_imp_output#(axi_stream_out_item, precoder_scoreboard) output_imp;
         uvm_analysis_imp_lite#(axi_lite_item, precoder_scoreboard) lite_imp;
-        bit signed [15:0] matrix_real[0:1][0:3][0:3];
-        bit signed [15:0] matrix_imag[0:1][0:3][0:3];
-        bit signed [15:0] vector_real[0:3];
-        bit signed [15:0] vector_imag[0:3];
-        int signed expected_real[0:3];
-        int signed expected_imag[0:3];
-        bit expected_saturated[0:3];
-        real floating_real[0:3];
-        real floating_imag[0:3];
+        bit signed [15:0] matrix_real[0:1][0:7][0:7];
+        bit signed [15:0] matrix_imag[0:1][0:7][0:7];
+        bit signed [15:0] vector_real[0:7];
+        bit signed [15:0] vector_imag[0:7];
+        int signed expected_real[0:7];
+        int signed expected_imag[0:7];
+        bit expected_saturated[0:7];
+        real floating_real[0:7];
+        real floating_imag[0:7];
         int input_index;
         int output_index;
         bit vector_active;
@@ -313,6 +313,8 @@ package precoder_uvm_pkg;
         bit [7:0] transaction_version;
         bit active_bank;
         bit [7:0] active_version;
+        bit active_mode_8x8;
+        bit transaction_mode_8x8;
         bit pending;
         bit pending_bank;
         bit [7:0] pending_version;
@@ -331,12 +333,13 @@ package precoder_uvm_pkg;
             integer bank, row, col;
             super.build_phase(phase);
             input_index=0; output_index=0; vector_active=0;
-            active_bank=0; active_version=0; pending=0;
+            active_bank=0; active_version=0; active_mode_8x8=0;
+            transaction_mode_8x8=0; pending=0;
             error_energy=0.0; reference_energy=0.0; last_evm=0.0; max_evm=0.0;
             checked_vectors=0; busy_commit_count=0; saturated_output_count=0;
             for (bank=0; bank<2; bank=bank+1)
-                for (row=0; row<4; row=row+1)
-                    for (col=0; col<4; col=col+1) begin
+                for (row=0; row<8; row=row+1)
+                    for (col=0; col<8; col=col+1) begin
                         matrix_real[bank][row][col]=0;
                         matrix_imag[bank][row][col]=0;
                     end
@@ -353,12 +356,13 @@ package precoder_uvm_pkg;
             return rounded;
         endfunction
         function void calculate_expected();
-            integer row, col;
+            integer row, col, dimension;
             longint signed acc_real, acc_imag;
             bit sat_real, sat_imag;
-            for (row=0; row<4; row=row+1) begin
+            dimension = transaction_mode_8x8 ? 8 : 4;
+            for (row=0; row<dimension; row=row+1) begin
                 acc_real=0; acc_imag=0; floating_real[row]=0.0; floating_imag[row]=0.0;
-                for (col=0; col<4; col=col+1) begin
+                for (col=0; col<dimension; col=col+1) begin
                     acc_real += $signed(matrix_real[transaction_bank][row][col])
                               * $signed(vector_real[col])
                               - $signed(matrix_imag[transaction_bank][row][col])
@@ -387,12 +391,16 @@ package precoder_uvm_pkg;
             int index, row, col;
             bit bank;
             if (!tr.is_write || tr.response != 2'b00) return;
-            if (((tr.addr >= 32'h100) && (tr.addr <= 32'h13c))
-                    || ((tr.addr >= 32'h200) && (tr.addr <= 32'h23c))) begin
+            if (((tr.addr >= 32'h100) && (tr.addr <= (active_mode_8x8 ? 32'h1fc : 32'h13c)))
+                    || ((tr.addr >= 32'h200) && (tr.addr <= (active_mode_8x8 ? 32'h2fc : 32'h23c)))) begin
                 bank=(tr.addr >= 32'h200);
-                index=(tr.addr & 32'h3f) >> 2; row=index/4; col=index%4;
+                index=(tr.addr & 32'hff) >> 2;
+                row=active_mode_8x8 ? index/8 : index/4;
+                col=active_mode_8x8 ? index%8 : index%4;
                 matrix_real[bank][row][col]=tr.data[31:16];
                 matrix_imag[bank][row][col]=tr.data[15:0];
+            end else if ((tr.addr == 32'h40) && (tr.data[31:1] == 0)) begin
+                active_mode_8x8=tr.data[0];
             end else if ((tr.addr == 32'h10) && tr.data[31]) begin
                 if (vector_active) begin
                     pending=1; pending_bank=tr.data[0]; pending_version=tr.data[15:8];
@@ -404,11 +412,13 @@ package precoder_uvm_pkg;
         endfunction
         function void write_input(axi_stream_in_item tr);
             if (tr.keep != 4'hf) `uvm_error("REF_TKEEP","reference input has invalid TKEEP")
-            if (tr.last !== (input_index == 3))
+            if (tr.last !== (input_index == (active_mode_8x8 ? 7 : 3)))
                 `uvm_error("REF_INPUT_LAST",$sformatf("bad input TLAST on beat %0d",input_index))
             vector_real[input_index]=tr.real_part;
             vector_imag[input_index]=tr.imag_part;
-            if (input_index == 3) begin
+            if (input_index == 0)
+                transaction_mode_8x8=active_mode_8x8;
+            if (input_index == (active_mode_8x8 ? 7 : 3)) begin
                 transaction_bank=active_bank; transaction_version=active_version;
                 vector_active=1; calculate_expected(); input_index=0;
             end else input_index++;
@@ -420,7 +430,7 @@ package precoder_uvm_pkg;
             end
             if (tr.antenna !== output_index[2:0])
                 `uvm_error("REF_ANTENNA",$sformatf("expected antenna %0d got %0d",output_index,tr.antenna));
-            if (tr.last !== (output_index == 3))
+            if (tr.last !== (output_index == (transaction_mode_8x8 ? 7 : 3)))
                 `uvm_error("REF_LAST",$sformatf("bad TLAST on output %0d",output_index));
             if (tr.real_part !== expected_real[output_index][15:0]
                     || tr.imag_part !== expected_imag[output_index][15:0])
@@ -436,7 +446,7 @@ package precoder_uvm_pkg;
             error_energy += (got_real-exp_real)*(got_real-exp_real) + (got_imag-exp_imag)*(got_imag-exp_imag);
             reference_energy += exp_real*exp_real + exp_imag*exp_imag;
             output_index++;
-            if (output_index == 4) begin
+            if (output_index == (transaction_mode_8x8 ? 8 : 4)) begin
                 checked_vectors++;
                 vector_evm=(reference_energy==0.0)?0.0:$sqrt(error_energy/reference_energy);
                 last_evm=vector_evm;
@@ -641,12 +651,13 @@ package precoder_uvm_pkg;
     class programmable_matrix_sequence extends uvm_sequence#(axi_lite_item);
         `uvm_object_utils(programmable_matrix_sequence)
         bit bank;
-        bit signed [15:0] coeff_real[0:15];
-        bit signed [15:0] coeff_imag[0:15];
+        bit mode_8x8;
+        bit signed [15:0] coeff_real[0:63];
+        bit signed [15:0] coeff_imag[0:63];
         function new(string name="programmable_matrix_sequence"); super.new(name); endfunction
         task body();
             axi_lite_item tr; integer i;
-            for (i=0;i<16;i=i+1) begin
+            for (i=0;i<(mode_8x8 ? 64 : 16);i=i+1) begin
                 tr=axi_lite_item::type_id::create($sformatf("matrix_b%0d_%0d",bank,i));
                 tr.is_write=1; tr.addr=(bank ? 32'h200 : 32'h100)+i*4;
                 tr.data={coeff_real[i],coeff_imag[i]}; tr.strb=4'hf;
@@ -659,16 +670,30 @@ package precoder_uvm_pkg;
 
     class programmable_vector_sequence extends uvm_sequence#(axi_stream_in_item);
         `uvm_object_utils(programmable_vector_sequence)
-        bit signed [15:0] sample_real[0:3];
-        bit signed [15:0] sample_imag[0:3];
+        bit mode_8x8;
+        bit signed [15:0] sample_real[0:7];
+        bit signed [15:0] sample_imag[0:7];
         function new(string name="programmable_vector_sequence"); super.new(name); endfunction
         task body();
             axi_stream_in_item tr; integer i;
-            for (i=0;i<4;i=i+1) begin
+            for (i=0;i<(mode_8x8 ? 8 : 4);i=i+1) begin
                 tr=axi_stream_in_item::type_id::create($sformatf("sample_%0d",i));
                 tr.real_part=sample_real[i]; tr.imag_part=sample_imag[i];
-                tr.keep=4'hf; tr.last=(i==3); start_item(tr); finish_item(tr);
+                tr.keep=4'hf; tr.last=(i==(mode_8x8 ? 7 : 3)); start_item(tr); finish_item(tr);
             end
+        endtask
+    endclass
+
+    class mode_write_sequence extends uvm_sequence#(axi_lite_item);
+        `uvm_object_utils(mode_write_sequence)
+        bit mode_8x8;
+        bit [1:0] response;
+        function new(string name="mode_write_sequence"); super.new(name); endfunction
+        task body();
+            axi_lite_item tr=axi_lite_item::type_id::create("mode_write");
+            tr.is_write=1; tr.addr=32'h40; tr.data={31'd0,mode_8x8};
+            tr.strb=4'hf; tr.w_first=$urandom_range(1);
+            start_item(tr); finish_item(tr); response=tr.response;
         endtask
     endclass
 
@@ -839,6 +864,108 @@ package precoder_uvm_pkg;
             read_and_check_register(32'h0000_0018);
             read_and_check_register(32'h0000_0028);
             `uvm_info("PHASE8",$sformatf("checked %0d vectors, %0d busy commits, %0d saturated outputs, max EVM=%0.6e",completed,env.scoreboard.busy_commit_count,env.scoreboard.saturated_output_count,env.scoreboard.max_evm),UVM_LOW)
+            phase.drop_objection(this);
+        endtask
+    endclass
+
+    class precoder_8x8_test extends uvm_test;
+        `uvm_component_utils(precoder_8x8_test)
+        precoder_env env;
+        int vector_count;
+        bit signed [15:0] expected_input_real[0:7];
+        bit signed [15:0] expected_input_imag[0:7];
+
+        function new(string name, uvm_component parent); super.new(name,parent); endfunction
+        function void build_phase(uvm_phase phase);
+            super.build_phase(phase);
+            if (!$value$plusargs("VECTORS=%d",vector_count)) vector_count=6;
+            if (vector_count < 2) vector_count=2;
+            uvm_config_db#(int)::set(this,"env.stream_in_agent.driver","gap_max",2);
+            uvm_config_db#(int)::set(this,"env.stream_out_agent.driver","stall_percent",30);
+            uvm_config_db#(int)::set(this,"env.lite_agent.driver","response_stall_max",2);
+            env=precoder_env::type_id::create("env",this);
+        endfunction
+        function automatic bit signed [15:0] random_q14(input int limit);
+            return $signed($urandom_range(2*limit)-limit);
+        endfunction
+        task write_mode(input bit mode);
+            mode_write_sequence seq=mode_write_sequence::type_id::create($sformatf("mode_%0d",mode));
+            seq.mode_8x8=mode; seq.start(env.lite_agent.sequencer);
+            if (seq.response != 2'b00)
+                `uvm_fatal("MODE_WRITE",$sformatf("MODE=%0d response %b",mode,seq.response));
+        endtask
+        task program_bank8(input bit bank, input bit negate);
+            programmable_matrix_sequence cfg;
+            integer row, col, index;
+            cfg=programmable_matrix_sequence::type_id::create($sformatf("bank8_%0d",bank));
+            cfg.bank=bank; cfg.mode_8x8=1;
+            for (row=0;row<8;row=row+1)
+                for (col=0;col<8;col=col+1) begin
+                    index=row*8+col;
+                    cfg.coeff_real[index]=(row == col) ? (negate ? -16'sh3000 : 16'sh3000) : random_q14(2048);
+                    cfg.coeff_imag[index]=(row == col) ? 0 : random_q14(2048);
+                end
+            cfg.start(env.lite_agent.sequencer);
+        endtask
+        task send_vector8(input int vector_id);
+            programmable_vector_sequence seq;
+            integer i;
+            seq=programmable_vector_sequence::type_id::create($sformatf("vector8_%0d",vector_id));
+            seq.mode_8x8=1;
+            for (i=0;i<8;i=i+1) begin
+                expected_input_real[i]=random_q14(12000);
+                expected_input_imag[i]=random_q14(12000);
+                seq.sample_real[i]=expected_input_real[i];
+                seq.sample_imag[i]=expected_input_imag[i];
+            end
+            seq.start(env.stream_in_agent.sequencer);
+        endtask
+        task wait_for_vectors(input int expected_count);
+            int timeout=0;
+            while ((env.scoreboard.checked_vectors < expected_count) && (timeout < 12000)) begin
+                @(posedge env.lite_agent.vif.aclk); timeout++;
+            end
+            if (env.scoreboard.checked_vectors < expected_count)
+                `uvm_fatal("8X8_TIMEOUT",$sformatf("expected %0d checked vectors got %0d",expected_count,env.scoreboard.checked_vectors));
+        endtask
+        task run_phase(uvm_phase phase);
+            axi_stream_out_item out;
+            axi_lite_write_sequence busy_mode_write;
+            integer i;
+            phase.raise_objection(this);
+            wait(env.lite_agent.vif.aresetn); repeat(2) @(posedge env.lite_agent.vif.aclk);
+            write_mode(1'b1);
+            program_bank8(1'b0,1'b0); program_bank8(1'b1,1'b1);
+            send_vector8(0);
+            // This write overlaps the 8x8 transaction and must be rejected.
+            busy_mode_write=axi_lite_write_sequence::type_id::create("busy_mode_write");
+            busy_mode_write.addr=32'h40; busy_mode_write.data=32'd0; busy_mode_write.strb=4'hf;
+            busy_mode_write.w_first=0; busy_mode_write.start(env.lite_agent.sequencer);
+            if (busy_mode_write.response !== 2'b10)
+                `uvm_fatal("MODE_BUSY",$sformatf("busy MODE write response %b",busy_mode_write.response));
+            begin
+                matrix_commit_sequence commit=matrix_commit_sequence::type_id::create("commit8");
+                commit.bank=1; commit.version=8'h72; commit.start(env.lite_agent.sequencer);
+            end
+            for (i=0;i<8;i=i+1) begin
+                env.output_fifo.get(out);
+                if (out.antenna !== i[2:0] || out.last !== (i==7)
+                        || out.version !== 8'd0)
+                    `uvm_fatal("8X8_META",$sformatf("Bank0 output %0d antenna=%0d last=%0d version=%0d",i,out.antenna,out.last,out.version));
+            end
+            wait_for_vectors(1);
+            send_vector8(1);
+            wait_for_vectors(2);
+            for (i=0;i<8;i=i+1) begin
+                env.output_fifo.get(out);
+                if (out.antenna !== i[2:0] || out.last !== (i==7)
+                        || out.version !== 8'h72)
+                    `uvm_fatal("8X8_META",$sformatf("Bank1 output %0d antenna=%0d last=%0d version=%0d",i,out.antenna,out.last,out.version));
+            end
+            if (env.scoreboard.checked_vectors != 2)
+                `uvm_fatal("8X8_COUNT",$sformatf("expected 2 checked vectors got %0d",env.scoreboard.checked_vectors));
+            write_mode(1'b0);
+            `uvm_info("PHASE13",$sformatf("8x8 UVM reference checked %0d vectors, busy commit=%0d, max EVM=%0.6e",env.scoreboard.checked_vectors,env.scoreboard.busy_commit_count,env.scoreboard.max_evm),UVM_LOW);
             phase.drop_objection(this);
         endtask
     endclass

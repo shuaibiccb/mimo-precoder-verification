@@ -82,6 +82,11 @@ case "$uvm_test" in
     grep -q "\[PHASE12\].*vectors=${vectors} python_checked=${vectors}.*busy_commits=1" "$run_log"
     grep -q "\[PHASE9_SVA_CORE\].*accepted=${vectors} completed=${vectors}.*busy_commits=1" "$run_log"
     ;;
+  precoder_8x8_test)
+    grep -q "\[PHASE13\].*8x8 UVM reference checked" "$run_log"
+    grep -q "\[PHASE9_SVA_AXI\].*input_beats=16 output_beats=16" "$run_log"
+    grep -q "\[PHASE9_SVA_CORE\].*accepted=2 completed=2.*busy_commits=1" "$run_log"
+    ;;
   *)
     echo "ERROR: run_uvm.sh has no completion check for $uvm_test" >&2
     exit 1

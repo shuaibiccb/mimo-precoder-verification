@@ -133,3 +133,7 @@ UVM性能monitor对周期、输入/输出向量、输入/输出阻塞、饱和�
 ## new第13阶段 4x4/8x8运行时模式验证
 
 `tb/axi/tb_axi_precoder_8x8.sv` 在服务器VCS下验证运行时模式寄存器、两个8x8矩阵Bank的64项系数写入、8拍输入和8拍输出、天线0～7的`TUSER`/`TLAST`元数据、输出反压，以及忙时MODE写保护和pending commit在事务边界生效。复位默认4x4的旧wrapper回归、AXI stress回归和第12阶段Python黄金测试同时通过。详细契约见 `docs/stage13_4x4_8x8_mode.md`。
+
+## new第14阶段 8x8 UVM参考模型
+
+UVM scoreboard扩展为动态4x4/8x8矩阵、输入向量和输出向量参考模型；`precoder_8x8_test` 使用随机复数8x8 Bank，检查位精确输出、EVM、8路天线编号、`TLAST`、矩阵版本、忙时MODE写保护和Bank commit边界。UVM回归在保留所有4x4测试的同时运行该8x8用例。
