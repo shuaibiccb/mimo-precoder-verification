@@ -24,11 +24,15 @@ set rtl_files [list \
     [file join $root_dir rtl matrix_storage.sv] \
     [file join $root_dir rtl symbol_buffer.sv] \
     [file join $root_dir rtl precoder_core.sv] \
-    [file join $root_dir rtl axi_stream_reorder_buffer.sv]]
+    [file join $root_dir rtl axi_stream_reorder_buffer.sv] \
+    [file join $root_dir rtl axi_stream_input.sv] \
+    [file join $root_dir rtl axi_stream_output.sv] \
+    [file join $root_dir rtl axi_lite_regs.sv] \
+    [file join $root_dir rtl performance_counters.sv]]
 
 analyze -format sverilog $rtl_files
-elaborate precoder_core
-current_design precoder_core
+elaborate axi_precoder_wrapper
+current_design axi_precoder_wrapper
 link
 check_design > [file join $report_dir check_design.rpt]
 
@@ -43,8 +47,8 @@ report_constraint -all_violators > [file join $report_dir constraints.rpt]
 report_reference -hierarchy > [file join $report_dir references.rpt]
 report_resources -hierarchy > [file join $report_dir resources.rpt]
 
-write -format verilog -hierarchy -output [file join $report_dir precoder_core_mapped.v]
-write_sdc [file join $report_dir precoder_core_mapped.sdc]
-write_sdf -version 2.1 [file join $report_dir precoder_core_mapped.sdf]
-write -format ddc -hierarchy -output [file join $report_dir precoder_core.ddc]
+write -format verilog -hierarchy -output [file join $report_dir axi_precoder_wrapper_mapped.v]
+write_sdc [file join $report_dir axi_precoder_wrapper_mapped.sdc]
+write_sdf -version 2.1 [file join $report_dir axi_precoder_wrapper_mapped.sdf]
+write -format ddc -hierarchy -output [file join $report_dir axi_precoder_wrapper.ddc]
 exit

@@ -12,4 +12,4 @@ fi
 
 yosys -l reports/generated/yosys.log synth/run_yosys.ys
 echo "Yosys report: reports/generated/yosys.log"
-echo "Yosys netlist: reports/generated/precoder_core_yosys.v"
+echo "Yosys netlist: reports/generated/axi_precoder_wrapper_yosys.v"
