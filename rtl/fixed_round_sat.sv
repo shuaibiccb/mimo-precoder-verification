@@ -39,21 +39,21 @@ module fixed_round_sat #(
         if (acc_ext < 0) begin
             magnitude = $unsigned(-acc_ext);
             rounded_magnitude = (magnitude
-                              + ((truncate_i === 1'b1) ? '0
+                              + ((truncate_i == 1'b1) ? '0
                                  : ({{ACC_WIDTH{1'b0}}, 1'b1} << (SHIFT-1))))
                               >> SHIFT;
             rounded_value = -$signed(rounded_magnitude);
         end else begin
             magnitude = $unsigned(acc_ext);
             rounded_magnitude = (magnitude
-                              + ((truncate_i === 1'b1) ? '0
+                              + ((truncate_i == 1'b1) ? '0
                                  : ({{ACC_WIDTH{1'b0}}, 1'b1} << (SHIFT-1))))
                               >> SHIFT;
             rounded_value = $signed(rounded_magnitude);
         end
 
         saturated_o = 1'b0;
-        if (wrap_i === 1'b1) begin
+        if (wrap_i == 1'b1) begin
             data_o = rounded_value[OUT_WIDTH-1:0];
         end else if (rounded_value > out_max_ext) begin
             data_o = OUT_MAX;
